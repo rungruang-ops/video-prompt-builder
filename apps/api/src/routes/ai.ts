@@ -1,3 +1,4 @@
+import { clientIp } from '../lib/clientip.js';
 import type { FastifyInstance } from 'fastify';
 import * as core from '@vpb/core';
 import { z, parse } from '../lib/validate.js';
@@ -24,7 +25,7 @@ const Settings = z.object({
 export default async function aiRoutes(app: FastifyInstance) {
   const { llm, cfg } = app;
   const auth = { preHandler: app.authenticate };
-  const llmCfg = { preHandler: app.authenticate, config: { rateLimit: { max: cfg.LLM_RATE_PER_MIN, timeWindow: '1 minute', keyGenerator: (req: any) => 'llm:' + (req.uid || req.ip) } } };
+  const llmCfg = { preHandler: app.authenticate, config: { rateLimit: { max: cfg.LLM_RATE_PER_MIN, timeWindow: '1 minute', keyGenerator: (req: any) => 'llm:' + (req.uid || clientIp(req)) } } };
 
   app.get('/ai/settings', auth, async req => ({ ...(await llm.status(req.uid!)), quota: await llm.quota(req.uid!) }));
   app.put('/ai/settings', auth, async req => {

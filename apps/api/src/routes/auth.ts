@@ -1,3 +1,4 @@
+import { clientIp } from '../lib/clientip.js';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z, parse } from '../lib/validate.js';
 import { AppError } from '../lib/errors.js';
@@ -13,7 +14,7 @@ let dummy = '';
 
 export default async function authRoutes(app: FastifyInstance) {
   const { db, cfg } = app;
-  const authLimit = { rateLimit: { max: cfg.AUTH_RATE_PER_MIN, timeWindow: '1 minute', keyGenerator: (req: any) => 'auth:' + req.ip } };
+  const authLimit = { rateLimit: { max: cfg.AUTH_RATE_PER_MIN, timeWindow: '1 minute', keyGenerator: (req: any) => 'auth:' + clientIp(req) } };
   const setSession = async (reply: FastifyReply, u: any) => {
     const token = await reply.jwtSign({ sub: u.id, role: u.role });
     reply.setCookie(cfg.COOKIE_NAME, token, { path: '/', httpOnly: true, sameSite: 'lax', secure: cfg.COOKIE_SECURE, maxAge: durationToSec(cfg.JWT_EXPIRES_IN) });
