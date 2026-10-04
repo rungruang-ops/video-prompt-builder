@@ -1,7 +1,7 @@
 import { clientIp } from '../lib/clientip.js';
 import type { FastifyInstance } from 'fastify';
 import * as core from '@vpb/core';
-import { z, parse } from '../lib/validate.js';
+import { z, parse, Uuid } from '../lib/validate.js';
 import { PROVIDER_IDS, isProviderId, type ProviderId } from '../llm/providers.js';
 import { TASKS, type AISettings } from '../llm/service.js';
 import { SpecSchema } from './meta.js';
@@ -19,7 +19,7 @@ const Settings = z.object({
   defaultProvider: z.string().refine(v => v === '' || isProviderId(v), 'bad provider').default(''),
   tasks: z.object({ enhance: TaskRoute, translate: TaskRoute, parse: TaskRoute }).partial().default({}),
   autoTranslate: z.boolean().default(true),
-  providers: z.record(Prefs).default({}),
+  providers: z.record(z.string(), Prefs).default({}),
 });
 
 export default async function aiRoutes(app: FastifyInstance) {
@@ -62,7 +62,7 @@ export default async function aiRoutes(app: FastifyInstance) {
     return llm.parseIdea(req.uid!, b.idea, b.model);
   });
   app.post('/ai/enhance', llmCfg, async req => {
-    const b = parse(z.object({ spec: SpecSchema, model: z.string().refine(m => !!core.MOD[m]).optional(), projectId: z.string().uuid().optional() }), req.body);
+    const b = parse(z.object({ spec: SpecSchema, model: z.string().refine(m => !!core.MOD[m]).optional(), projectId: Uuid.optional() }), req.body);
     return llm.enhance(req.uid!, b.spec, b.model, b.projectId);
   });
   app.post('/llm', llmCfg, async req => {

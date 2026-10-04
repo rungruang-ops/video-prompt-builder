@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 const bool = (d: boolean) => z.preprocess(v => (v === undefined || v === '' ? d : ['1', 'true', 'yes', 'on'].includes(String(v).toLowerCase())), z.boolean());
-const num = (d: number) => z.preprocess(v => (v === undefined || v === '' ? d : Number(v)), z.number().finite());
+const num = (d: number) => z.preprocess(v => (v === undefined || v === '' ? d : Number(v)), z.number()); // zod 4 rejects ±Infinity/NaN by default (was .finite())
 const str = (d = '') => z.preprocess(v => (v === undefined ? d : String(v)), z.string());
 /** true / false / hop count (recommended: 1 behind nginx or Vercel) / comma list of trusted proxy IPs/CIDRs */
 const trust = (d: number) => z.preprocess(v => {
