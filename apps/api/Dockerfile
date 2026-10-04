@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Build context: repository root  (docker build -f apps/api/Dockerfile .)
-FROM node:24-alpine AS build
+FROM node:26-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/core/package.json packages/core/
@@ -12,7 +12,7 @@ COPY packages/core packages/core
 COPY apps/api apps/api
 RUN npm run build -w apps/api
 
-FROM node:24-alpine AS runtime
+FROM node:26-alpine AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 COPY package.json package-lock.json ./
