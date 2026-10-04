@@ -1,0 +1,81 @@
+# docker compose up -d --build          → http://localhost:8080 (WEB_PORT)
+# docker compose --profile stub up -d   → also starts the stub LLM (demo only: set CUSTOM_LLM_BASE_URL=http://stub-llm:9999/v1,
+#                                          CUSTOM_LLM_MODEL=stub-model, ALLOW_STUB_LLM=true in .env)
+# Postgres and Redis are NOT published on the host — they are reachable only on the internal compose network.
+name: video-prompt-builder
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-vpb}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-vpb}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "volatile-lru"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # production by default (refuses placeholder secrets); API_NODE_ENV=development to relax
+      NODE_ENV: ${API_NODE_ENV:-production}
+      HOST: 0.0.0.0
+      PORT: 8080
+      DATABASE_URL: postgres://${POSTGRES_USER:-vpb}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-vpb}
+      REDIS_URL: redis://redis:6379
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL_DOCKER:-http://host.docker.internal:11434/v1}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+    depends_on:
+      api: { condition: service_healthy }
+
+  # Deterministic fake LLM (OpenAI/Anthropic/Gemini wire formats) for demos and smoke tests — never use in production.
+  stub-llm:
+    profiles: ["stub"]
+    image: node:24-alpine
+    working_dir: /stub
+    command: ["node", "server.mjs"]
+    volumes:
+      - ./tools/stub-llm:/stub:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9999/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
+  redisdata:

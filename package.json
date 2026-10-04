@@ -1,0 +1,30 @@
+{
+  "name": "video-prompt-builder",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "tools/*"
+  ],
+  "engines": {
+    "node": "24.x"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:api": "npm run dev -w apps/api",
+    "dev:web": "npm run dev -w apps/web",
+    "stub-llm": "node tools/stub-llm/server.mjs",
+    "build": "npm run build -w apps/api && npm run build -w apps/web",
+    "db:migrate": "npm run db:migrate -w apps/api",
+    "typecheck": "npm run typecheck -w apps/api",
+    "test": "npm run test -w packages/core && npm run test -w apps/api",
+    "test:unit": "npm run test -w packages/core && npm run test:unit -w apps/api",
+    "e2e": "npm run e2e -w apps/web",
+    "env:init": "node scripts/env-init.mjs",
+    "migrate": "npm run db:migrate",
+    "smoke": "node scripts/smoke.mjs",
+    "vercel:local": "node scripts/vercel-local.mjs"
+  }
+}

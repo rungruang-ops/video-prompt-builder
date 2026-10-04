@@ -1,0 +1,19 @@
+{
+  "name": "@vpb/web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --port 5173 --strictPort",
+    "e2e": "playwright test"
+  },
+  "dependencies": {
+    "@vpb/core": "1.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "vite": "^6.4.3"
+  }
+}

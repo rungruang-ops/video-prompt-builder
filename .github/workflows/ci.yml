@@ -1,0 +1,145 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# least privilege: the workflow only reads the repo (no write tokens, no secrets needed)
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: vpb
+          POSTGRES_PASSWORD: vpb
+          POSTGRES_DB: vpb_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U vpb -d vpb_test" --health-interval 5s --health-timeout 3s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgres://vpb:vpb@localhost:5432/vpb_test
+      TEST_REDIS_URL: redis://localhost:6379/15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Core unit tests (shared compiler/taxonomy)
+        run: npm test -w packages/core
+      - name: API unit + integration tests (mocked LLM providers, real Postgres + Redis)
+        run: npm test -w apps/api
+      - name: Build
+        run: npm run build
+      - name: Dependency audit (fails on high/critical)
+        run: npm audit --audit-level=high
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: test
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: vpb
+          POSTGRES_PASSWORD: pgpw_${{ github.run_id }}
+          POSTGRES_DB: vpb
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U vpb -d vpb" --health-interval 5s --health-timeout 3s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      NODE_ENV: development
+      DATABASE_URL: postgres://vpb:pgpw_${{ github.run_id }}@localhost:5432/vpb
+      REDIS_URL: redis://localhost:6379
+      CUSTOM_LLM_BASE_URL: http://localhost:9999/v1
+      CUSTOM_LLM_MODEL: stub-model
+      LOG_LEVEL: warn
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Generate throwaway secrets for this run
+        run: |
+          echo "JWT_SECRET=$(openssl rand -base64 48 | tr -d '\n')" >> "$GITHUB_ENV"
+          echo "ENCRYPTION_KEY=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
+      - run: npx playwright install --with-deps chromium
+        working-directory: apps/web
+      - run: npm run build
+      - name: Start stub LLM, API and web preview
+        run: |
+          node tools/stub-llm/server.mjs > stub.log 2>&1 &
+          node apps/api/dist/server.js > api.log 2>&1 &
+          npx -w apps/web vite preview --port 5173 --strictPort > web.log 2>&1 &
+          for u in http://localhost:9999/health http://localhost:8080/api/v1/health http://localhost:5173/; do
+            for i in $(seq 1 60); do curl -fsS "$u" > /dev/null && break; sleep 1; done
+            curl -fsS "$u" > /dev/null || { echo "not ready: $u"; exit 1; }
+          done
+      - name: Playwright smoke
+        run: npx playwright test
+        working-directory: apps/web
+        env:
+          BASE_URL: http://localhost:5173
+      - name: Migrations via the compiled CLI (same command as Vercel build / CI deploys)
+        run: npm run migrate:dist -w apps/api
+      - name: Vercel adapter smoke (api/index.mjs handler + vercel.json rewrites/headers, emulated locally)
+        env:
+          ALLOW_STUB_LLM: "true"
+          COOKIE_SECURE: "false"
+          PORT: "3000"
+        run: |
+          node scripts/vercel-local.mjs > vercel.log 2>&1 &
+          for i in $(seq 1 30); do curl -fsS http://localhost:3000/api/v1/health > /dev/null && break; sleep 1; done
+          curl -fsSI http://localhost:3000/ | grep -i "content-security-policy"
+          node scripts/smoke.mjs http://localhost:3000
+      - if: failure()
+        run: tail -n 200 stub.log api.log web.log vercel.log || true
+      - if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-report
+          path: apps/web/test-results
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: test
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build images
+        run: |
+          docker build -f apps/api/Dockerfile -t vpb-api:ci .
+          docker build -f apps/web/Dockerfile -t vpb-web:ci .
