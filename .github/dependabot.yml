@@ -6,6 +6,10 @@ updates:
     open-pull-requests-limit: 5
     groups:
       minor-and-patch: { update-types: [minor, patch] }
+    ignore:
+      # keep the Node type definitions on the runtime major (Node 24); bump together with the Node 26 move
+      - dependency-name: "@types/node"
+        versions: [">=25.0.0"]
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }
