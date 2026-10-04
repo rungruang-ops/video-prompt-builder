@@ -4,6 +4,7 @@ import jwt from '@fastify/jwt';
 import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
+import { clientIp } from './lib/clientip.js';
 import { randomUUID } from 'node:crypto';
 import { durationToSec, restKvOptions, type Config } from './config.js';
 import { createPool, type Db, type SslMode } from './db/pool.js';
@@ -72,7 +73,7 @@ export async function buildApp(cfg: Config, deps: AppDeps = {}): Promise<Fastify
   });
   await app.register(rateLimit, {
     global: true, max: cfg.API_RATE_PER_MIN, timeWindow: '1 minute', redis: kv.redis, nameSpace: 'rl:', ...(kv.hit ? { store: kvRateStore(kv) as any } : {}),
-    keyGenerator: req => (req.uid ? 'u:' + req.uid : 'ip:' + req.ip),
+    keyGenerator: req => (req.uid ? 'u:' + req.uid : 'ip:' + clientIp(req)),
     errorResponseBuilder: (_req, ctx) => ({ statusCode: 429, code: 'rate_limited', error: 'Too Many Requests', message: `เรียกถี่เกินไป — ลองใหม่ใน ${Math.ceil(ctx.ttl / 1000)} วินาที` }),
   });
 

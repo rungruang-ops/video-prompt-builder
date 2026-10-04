@@ -201,6 +201,14 @@ describe('rate limits & quotas', () => {
     expect(codes).toEqual([200, 200, 429]);
     await a2.close();
   });
+  it('IPv6 clients cannot dodge the auth limit by rotating addresses inside one /64 (GHSA-grpc-p53c-r64v)', async () => {
+    const { app: a4 } = await makeApp({ AUTH_RATE_PER_MIN: 3 });
+    const ips = ['2001:db8:1:2::a', '2001:db8:1:2::b', '2001:DB8:1:2:0:0:0:c', '2001:db8:1:2:ffff::d', '2001:db8:1:2::e'];
+    const codes: number[] = [];
+    for (const ip of ips) codes.push((await a4.inject({ method: 'POST', url: '/api/v1/auth/login', remoteAddress: ip, payload: { email: 'x@example.com', password: 'whatever1' } })).statusCode);
+    expect(codes.slice(0, 3)).toEqual([401, 401, 401]); expect(codes[3]).toBe(429); expect(codes[4]).toBe(429);
+    await a4.close();
+  });
   it('login brute-force is rate limited per IP', async () => {
     const { app: a3 } = await makeApp({ AUTH_RATE_PER_MIN: 3 });
     const codes: number[] = [];
