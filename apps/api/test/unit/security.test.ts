@@ -75,3 +75,14 @@ describe('provider client hardening', () => {
     expect(e.code).toBe('provider_timeout'); expect(Date.now() - t0).toBeLessThan(1500);
   });
 });
+
+describe('config parsing (zod 4)', () => {
+  it('numeric env vars reject non-numbers and infinities, defaults/aliases still apply', () => {
+    expect(() => loadConfig({ ...strong, PORT: 'abc' })).toThrow(/PORT/);
+    expect(() => loadConfig({ ...strong, PORT: 'Infinity' })).toThrow(/PORT/);
+    const c = loadConfig({ ...strong, PORT: '9090', ALLOW_USER_BASE_URL: 'true', TRUST_PROXY: '2', COOKIE_SECURE: 'yes' });
+    expect(c.PORT).toBe(9090); expect(c.ALLOW_USER_BASE_URL).toBe('all'); expect(c.TRUST_PROXY).toBe(2); expect(c.COOKIE_SECURE).toBe(true);
+    const d = loadConfig({ ...strong });
+    expect(d.NODE_ENV).toBe('development'); expect(d.PORT).toBe(8080); expect(d.ALLOW_USER_BASE_URL).toBe('off'); expect(d.TRUST_PROXY).toBe(1);
+  });
+});

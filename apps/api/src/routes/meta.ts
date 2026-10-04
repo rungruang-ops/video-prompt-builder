@@ -3,7 +3,7 @@ import * as core from '@vpb/core';
 import { z, parse, Uuid } from '../lib/validate.js';
 import { AppError, notFound } from '../lib/errors.js';
 
-export const SpecSchema = z.record(z.any()).refine(s => JSON.stringify(s).length < 200_000, 'spec too large');
+export const SpecSchema = z.record(z.string(), z.any()).refine(s => JSON.stringify(s).length < 200_000, 'spec too large');
 const ModelId = z.string().refine(m => !!core.MOD[m], 'unknown model');
 const presetOut = (p: any) => ({ id: p.slug || p.id, dbId: p.id, system: p.is_system, th: p.name_th, e: p.emoji, model: p.target_model, s: p.spec });
 

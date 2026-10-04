@@ -198,6 +198,8 @@ CI (`.github/workflows/ci.yml`) รันทั้งหมดนี้บน Gi
 
 ## 7. API (สรุป) — base `/api/v1`, ตอบ error รูปแบบ `{ "error": { "code", "message", "details" } }`
 
+ข้อมูลไม่ผ่าน validation → `400` `{ "error": { "code": "validation_error", "message": "ข้อมูลไม่ถูกต้อง: <path> <ข้อความ>", "details": [{ "path": ["password"], "code": "too_small", "message": "…" }] } }` — `details[].code` เป็นรหัส issue ของ zod 4 (เช่น `too_small`, `too_big`, `invalid_type`, `invalid_format`, `invalid_value`, `custom`); ข้อความ default เป็นภาษาอังกฤษของ zod (ไม่ควรใช้เทียบค่าในโค้ด ให้ใช้ `code` + `path`)
+
 | Method | Path | หมายเหตุ |
 |---|---|---|
 | GET | `/health`, `/health/live` | readiness (DB + Redis, 503 ถ้าล่ม) / liveness |

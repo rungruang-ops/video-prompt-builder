@@ -5,7 +5,8 @@ import { AppError } from '../lib/errors.js';
 import { hashPassword, verifyPassword } from '../lib/password.js';
 import { durationToSec } from '../config.js';
 
-const Email = z.string().trim().toLowerCase().email().max(254);
+// trim/lowercase first, then validate the normalized value (zod 4: z.email() is a top-level format)
+const Email = z.string().trim().toLowerCase().pipe(z.email().max(254));
 const Register = z.object({ email: Email, password: z.string().min(8, 'ต้องยาวอย่างน้อย 8 ตัวอักษร').max(128), displayName: z.string().trim().max(80).optional() });
 const Login = z.object({ email: Email, password: z.string().min(1).max(128) });
 const pub = (u: any) => ({ id: u.id, email: u.email, displayName: u.display_name, role: u.role, createdAt: u.created_at });

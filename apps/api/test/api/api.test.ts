@@ -285,3 +285,53 @@ describe('security hardening', () => {
     expect(rs.filter((r: any) => r.json().user.role === 'admin').length).toBe(1);
   });
 });
+
+describe('request validation (zod 4)', () => {
+  beforeAll(async () => {
+    await resetDb(); await app.close();
+    ({ app, calls } = await makeApp({ AUTH_RATE_PER_MIN: 50, LLM_DAILY_QUOTA: 1000 }));
+    A = await session(app, 'alice@example.com'); B = await session(app, 'bob@example.com');
+  });
+  it('validation errors have a stable { code, message, details[] } shape and never echo the input', async () => {
+    const r = await app.inject({ method: 'POST', url: '/api/v1/auth/register', payload: { email: 'v@example.com', password: 'short-pw'.slice(0, 5) } });
+    expect(r.statusCode).toBe(400);
+    const e = j(r).error;
+    expect(e.code).toBe('validation_error');
+    expect(e.message).toBe('ข้อมูลไม่ถูกต้อง: password ต้องยาวอย่างน้อย 8 ตัวอักษร');
+    expect(e.details).toEqual([{ path: ['password'], code: 'too_small', message: 'ต้องยาวอย่างน้อย 8 ตัวอักษร' }]);
+    expect(JSON.stringify(e)).not.toContain('short');
+    const miss = j(await app.inject({ method: 'POST', url: '/api/v1/auth/login', payload: {} })).error;
+    expect(miss.code).toBe('validation_error');
+    expect(miss.details.map((d: any) => d.path.join('.')).sort()).toEqual(['email', 'password']);
+    expect(miss.details.every((d: any) => Object.keys(d).sort().join() === 'code,message,path')).toBe(true);
+  });
+  it('emails are trimmed and lower-cased before format validation', async () => {
+    const r = await app.inject({ method: 'POST', url: '/api/v1/auth/register', payload: { email: '  Carol@Example.COM ', password: 'password123' } });
+    expect(r.statusCode).toBe(201); expect(j(r).user.email).toBe('carol@example.com');
+    const bad = j(await app.inject({ method: 'POST', url: '/api/v1/auth/register', payload: { email: 'not-an-email', password: 'password123' } })).error;
+    expect(bad.details[0]).toMatchObject({ path: ['email'], code: 'invalid_format' });
+  });
+  it('ids must be RFC 9562 UUIDs; unknown but valid ids are 404', async () => {
+    expect((await inj(A, 'GET', '/api/v1/projects/not-a-uuid')).statusCode).toBe(400);
+    expect((await inj(A, 'GET', '/api/v1/projects/12345678-1234-1234-1234-123456789012')).statusCode).toBe(400); // no version/variant bits
+    expect((await inj(A, 'GET', '/api/v1/projects/3f1c2a9e-6b1d-4c3a-9f2e-1a2b3c4d5e6f')).statusCode).toBe(404);
+  });
+  it('AI settings: provider map is a string-keyed record; unknown providers are ignored, nested errors carry the full path', async () => {
+    const ok = await inj(B, 'PUT', '/api/v1/ai/settings', { providers: { openai: { model: 'gpt-x', temperature: '' }, bogus: { model: 'y' } } });
+    expect(ok.statusCode).toBe(200);
+    const oa = j(ok).providers.find((p: any) => p.id === 'openai');
+    expect(oa.model).toBe('gpt-x'); expect(j(ok).providers.some((p: any) => p.id === 'bogus')).toBe(false);
+    const bad = j(await inj(B, 'PUT', '/api/v1/ai/settings', { providers: { openai: { temperature: 5 } } })).error;
+    expect(bad.code).toBe('validation_error'); expect(bad.details[0].path).toEqual(['providers', 'openai', 'temperature']);
+    const notObj = await inj(B, 'PUT', '/api/v1/ai/settings', { providers: { openai: 'nope' } });
+    expect(notObj.statusCode).toBe(400);
+  });
+  it('defaults still apply for omitted fields (query coercion, nested defaults)', async () => {
+    const h = await inj(A, 'GET', '/api/v1/history'); expect(h.statusCode).toBe(200); expect(Array.isArray(j(h).history)).toBe(true);
+    expect((await inj(A, 'GET', '/api/v1/history?limit=5')).statusCode).toBe(200);
+    expect(j(await inj(A, 'GET', '/api/v1/history?limit=abc')).error.details[0].path).toEqual(['limit']);
+    expect((await inj(A, 'GET', '/api/v1/history?limit=0')).statusCode).toBe(400);
+    const s = await inj(A, 'PUT', '/api/v1/ai/settings', {}); // every field optional → defaults
+    expect(s.statusCode).toBe(200);
+  });
+});
