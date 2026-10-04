@@ -311,4 +311,7 @@ node scripts/smoke.mjs http://localhost:3000
 - ชื่อโมเดลเริ่มต้นของแต่ละ provider (`apps/api/src/llm/providers.ts`) อ้างอิงข้อมูล ต.ค. 2026 — ควรตรวจกับเอกสาร provider และ override ด้วย `*_MODEL`
 - OpenAI ใช้ Chat Completions (ยังไม่ใช้ Responses API); xAI ใช้ endpoint แบบ OpenAI-compatible
 - quota รายวันนับตามวัน UTC; ไม่มีการนับ token/ค่าใช้จ่ายจริง
-- ยังไม่ได้เลือก LICENSE — ถ้าเผยแพร่เป็น public ควรเพิ่ม
+
+## License
+
+MIT © 2026 rungruang-ops — ดูไฟล์ [LICENSE](LICENSE)
