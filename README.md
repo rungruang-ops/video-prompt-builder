@@ -190,8 +190,11 @@ BASE_URL=http://localhost:8080 npm run e2e             # กับ docker compos
 SCREENSHOT_DIR=$PWD/screenshots npm run e2e            # เก็บภาพหน้าจอ login/app (1440x900)
 ```
 
+e2e ของหน้า admin (`e2e/admin.spec.js`) ต้องมี admin ที่ seed ไว้: สตาร์ท API ด้วย `ADMIN_EMAIL`/`ADMIN_PASSWORD` และรัน Playwright ด้วยค่าเดียวกัน
+(หรือ `E2E_ADMIN_EMAIL`/`E2E_ADMIN_PASSWORD`) — ถ้าไม่ตั้ง test นี้จะถูก skip; CI สร้างค่าสุ่มให้ทุกครั้ง
+
 API tests ใช้ **fake fetch** แทน provider จริง (เส้นทางเดียวกับ `tools/stub-llm`) ครอบคลุม: รูปแบบ request ของ OpenAI/Anthropic/Gemini/Ollama,
-การ parse คำตอบ, JSON-mode fallback, retry/timeout, การแปลง error (401→`provider_auth`, 429→`provider_rate_limited`, 5xx→`provider_error`,
+การ parse คำตอบ, JSON-mode fallback, retry/timeout, การเพิกถอน session, หน้า admin (สิทธิ์, ค้นหา, ระงับ/เปิดบัญชี, กัน admin คนสุดท้าย/ระงับตัวเอง), การแปลง error (401→`provider_auth`, 429→`provider_rate_limited`, 5xx→`provider_error`,
 timeout→`provider_timeout`), เข้ารหัส key ใน DB, แยกข้อมูลระหว่างผู้ใช้, cache คำแปล, quota/rate limit, security headers, CORS
 
 CI (`.github/workflows/ci.yml`) รันทั้งหมดนี้บน GitHub Actions พร้อม service containers Postgres/Redis + Playwright + docker build
@@ -219,12 +222,16 @@ CI (`.github/workflows/ci.yml`) รันทั้งหมดนี้บน Gi
 | POST | `/ai/parse-idea` | ไอเดีย → structured spec (กรอง id ที่ไม่รู้จักออก) |
 | POST | `/ai/enhance` | ขัดเกลา prompt (server compile spec เอง + system prompt ฝั่ง server) |
 | POST | `/llm` | generic proxy `{ provider?, model?, messages, json? }` — ผู้ใช้ทั่วไปได้ system prompt กลางเสมอ (admin กำหนดเองได้) |
+| GET | `/admin/users` | **admin เท่านั้น** — `?q=` (ค้นอีเมล/ชื่อ) `&role=admin\|user` `&status=active\|disabled` `&limit=` (≤100) `&offset=` → ผู้ใช้ + จำนวนโปรเจกต์/เวอร์ชัน, quota AI วันนี้ (`used/limit`), จำนวนครั้งที่เรียก AI 7 วัน, `stats`, `total` |
+| GET | `/admin/users/:id` | **admin** — ข้อมูลผู้ใช้ + activity ล่าสุด 20 รายการ |
+| PATCH | `/admin/users/:id` | **admin** — `{ role?: "admin"\|"user", disabled?: boolean }`; เปลี่ยนบทบาท/ระงับ = เพิกถอนทุก session ของผู้ใช้นั้น; `409 last_admin` ถ้าจะเหลือ admin ที่ใช้งานได้ 0 คน, `400 cannot_disable_self` |
 
 ## 8. ความปลอดภัย
 
 - รหัสผ่าน: scrypt (N=32768) + salt, เปรียบเทียบแบบ timing-safe; login ผิดใช้เวลาเท่ากับผู้ใช้ที่มีอยู่จริง; การสมัครคนแรก (= admin) ล็อกด้วย advisory lock กัน race
 - Session: JWT (HS256 เท่านั้น) ใน cookie `httpOnly` + `SameSite=Lax` (+ `Secure` เมื่อ `COOKIE_SECURE=true`) อายุตาม `JWT_EXPIRES_IN`; request ที่แก้ข้อมูลต้องเป็น `application/json` (ช่วยกัน CSRF แบบ form)
-- เพิกถอน session ได้ก่อนหมดอายุ: JWT มี claim `tv` = `users.token_version` ตอนออก token และทุก request ที่ต้อง login จะเทียบกับค่าในฐานข้อมูล — ค่าเพิ่มขึ้นเมื่อกด "ออกจากระบบทุกอุปกรณ์" หรือเปลี่ยนรหัสผ่าน → token เก่าทุกใบใช้ไม่ได้ทันที (token ที่ออกก่อนอัปเดตนี้ไม่มี `tv` จะนับเป็น 0 จึงยังใช้ได้จนกว่าจะมีการเพิกถอนครั้งแรก)
+- เพิกถอน session ได้ก่อนหมดอายุ: JWT มี claim `tv` = `users.token_version` ตอนออก token และทุก request ที่ต้อง login จะเทียบกับค่าในฐานข้อมูล — ค่าเพิ่มขึ้นเมื่อกด "ออกจากระบบทุกอุปกรณ์" เปลี่ยนรหัสผ่าน หรือเมื่อ admin เปลี่ยนบทบาท/ระงับบัญชี → token เก่าทุกใบใช้ไม่ได้ทันที (token ที่ออกก่อนอัปเดตนี้ไม่มี `tv` จะนับเป็น 0 จึงยังใช้ได้จนกว่าจะมีการเพิกถอนครั้งแรก)
+- จัดการผู้ใช้ (admin): ปุ่ม **👥 ผู้ใช้** บนหัวเว็บ (เห็นเฉพาะ admin; API ตรวจสิทธิ์จากฐานข้อมูลทุก request) — ค้นหา, เปลี่ยนบทบาท, ระงับ/เปิดใช้งานบัญชี, ดู quota/โปรเจกต์; บัญชีที่ถูกระงับ login ไม่ได้ (`403 account_disabled` — แจ้งหลังตรวจรหัสผ่านถูกเท่านั้น) และ session ที่เปิดอยู่ใช้ไม่ได้ทันที (`401`); ระบบกันการลดสิทธิ์/ระงับ admin ที่ใช้งานได้คนสุดท้าย (ล็อกด้วย advisory lock กัน race) และกันการระงับบัญชีตัวเอง; ทุกการเปลี่ยนแปลงบันทึกใน history ของ admin (`admin.user_update`)
 - API key ของผู้ใช้: AES-256-GCM พร้อม AAD = `userId:provider` (ย้าย ciphertext ข้ามผู้ใช้ไม่ได้); ข้อความ error จาก provider ถูกลบส่วนที่ดูเหมือน key ก่อนส่งกลับ
 - SSRF: base URL ที่ผู้ใช้กำหนด (`ALLOW_USER_BASE_URL=admin|all`) ต้องผ่านการตรวจ DNS/IP (ห้าม loopback, private, link-local/metadata 169.254.169.254, CGNAT, ULA …), ห้ามมี user:pass, ไม่ follow redirect, ไม่ได้รับ key ของ server และผลแปลจาก endpoint ของผู้ใช้ไม่เข้า cache กลาง
 - Validation ทุก endpoint ด้วย zod, จำกัดขนาด body, rate limit ต่อผู้ใช้/IP (Redis/Upstash), quota LLM รายวัน; ทุก query เป็น parameterized SQL
@@ -310,7 +317,7 @@ node scripts/smoke.mjs http://localhost:3000
 
 ## 11. ข้อจำกัดที่ทราบ
 
-- ยังไม่มี: ยืนยันอีเมล, ลืมรหัสผ่าน/รีเซ็ต, OAuth, หน้า admin จัดการผู้ใช้, การหมุน `ENCRYPTION_KEY` อัตโนมัติ, การเพิกถอน session ทีละเครื่อง (`/auth/logout` ลบ cookie ของเครื่องนี้เท่านั้น — ถ้าสงสัยว่า token ถูกขโมยให้ใช้ "ออกจากระบบทุกอุปกรณ์")
+- ยังไม่มี: ยืนยันอีเมล, ลืมรหัสผ่าน/รีเซ็ต, OAuth, การลบบัญชีผู้ใช้/โอนข้อมูล (หน้า admin ทำได้แค่ระงับ), การหมุน `ENCRYPTION_KEY` อัตโนมัติ, การเพิกถอน session ทีละเครื่อง (`/auth/logout` ลบ cookie ของเครื่องนี้เท่านั้น — ถ้าสงสัยว่า token ถูกขโมยให้ใช้ "ออกจากระบบทุกอุปกรณ์")
 - SSRF guard ตรวจ DNS ก่อนเชื่อมต่อ — ยังมีความเสี่ยง DNS rebinding แคบ ๆ จึงตั้งค่าเริ่มต้น `ALLOW_USER_BASE_URL=off`
 - CSP ยังต้องใช้ `style-src 'unsafe-inline'` (UI ใช้ inline style attributes)
 - ชื่อโมเดลเริ่มต้นของแต่ละ provider (`apps/api/src/llm/providers.ts`) อ้างอิงข้อมูล ต.ค. 2026 — ควรตรวจกับเอกสาร provider และ override ด้วย `*_MODEL`
