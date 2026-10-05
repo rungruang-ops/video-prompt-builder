@@ -31,7 +31,14 @@ declare module 'fastify' {
 // tv = users.token_version at issue time (session revocation); optional so pre-revocation tokens still decode
 declare module '@fastify/jwt' { interface FastifyJWT { payload: { sub: string; role: 'admin' | 'user'; tv?: number }; user: { sub: string; role: 'admin' | 'user'; tv?: number } } }
 
-export interface AppDeps { db?: Db; kv?: KV; fetch?: FetchFn; logger?: boolean | object; lookup?: LookupFn }
+export interface AppDeps {
+  db?: Db; kv?: KV; logger?: boolean | object; lookup?: LookupFn;
+  /** fetch for server-configured providers (tests inject a fake) */
+  fetch?: FetchFn;
+  /** fetch for user-supplied base URLs. Not set → deps.fetch if injected, else the connect-time SSRF-guarded fetch;
+   *  explicitly `undefined` → always the guarded fetch (tests of the guard itself). */
+  userFetch?: FetchFn;
+}
 
 export async function buildApp(cfg: Config, deps: AppDeps = {}): Promise<FastifyInstance> {
   const app = Fastify({
@@ -44,8 +51,8 @@ export async function buildApp(cfg: Config, deps: AppDeps = {}): Promise<Fastify
   const kv = deps.kv || createKV(cfg.REDIS_URL, restKvOptions(cfg));
   if (kv.kind === 'memory' && cfg.NODE_ENV === 'production') app.log.warn('REDIS_URL not set: rate limits/quotas are per-instance (in-memory)');
   app.decorate('db', db); app.decorate('kv', kv); app.decorate('cfg', cfg);
-  app.decorate('llm', new LLMService(db, cfg, kv, deps.fetch || fetch, parseKey(cfg.ENCRYPTION_KEY), deps.lookup));
-  app.addHook('onClose', async () => { if (!deps.db) await db.end(); if (!deps.kv) await kv.close(); });
+  app.decorate('llm', new LLMService(db, cfg, kv, deps.fetch || fetch, parseKey(cfg.ENCRYPTION_KEY), deps.lookup, 'userFetch' in deps ? deps.userFetch : deps.fetch));
+  app.addHook('onClose', async () => { await app.llm.close(); if (!deps.db) await db.end(); if (!deps.kv) await kv.close(); });
   app.addHook('onSend', async (req, reply) => { reply.header('x-request-id', req.id); });
 
   // Wait for PostgreSQL (container start-up ordering, restarts) — DB_CONNECT_RETRIES × 1s (0 = skip, e.g. serverless)

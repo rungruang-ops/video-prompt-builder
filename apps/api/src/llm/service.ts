@@ -8,7 +8,7 @@ import { decryptSecret, encryptSecret, keyHint } from '../lib/crypto.js';
 import { PROVIDERS, PROVIDER_IDS, envProvider, isProviderId, type ProviderId } from './providers.js';
 import { parseJSONLoose, type ResolvedProvider, type ChatMessage } from './adapters.js';
 import { callProvider, type FetchFn, type CallResult } from './client.js';
-import { assertSafeBaseUrl, type LookupFn } from '../lib/netguard.js';
+import { assertSafeBaseUrl, createGuardedFetch, type GuardOptions, type LookupFn } from '../lib/netguard.js';
 import { FMT_EN, SYS_GENERIC, SYS_TEST, SYS_TRANSLATE, sysEnhance, sysParse } from './prompts.js';
 
 export type Task = 'enhance' | 'translate' | 'parse';
@@ -28,7 +28,14 @@ const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 const today = () => new Date().toISOString().slice(0, 10);
 
 export class LLMService {
-  constructor(private db: Db, private cfg: Config, private kv: KV, private fetchFn: FetchFn, private key: Buffer, private lookup?: LookupFn) {}
+  private guard: GuardOptions;
+  /** fetch for user-supplied base URLs: re-checks DNS at connect time (closes the DNS-rebinding window) */
+  private userFetch: FetchFn;
+  constructor(private db: Db, private cfg: Config, private kv: KV, private fetchFn: FetchFn, private key: Buffer, lookup?: LookupFn, userFetch?: FetchFn) {
+    this.guard = { allowPrivate: cfg.LLM_ALLOW_PRIVATE_URLS, allowlist: cfg.LLM_URL_ALLOWLIST.split(',').map(h => h.trim().toLowerCase()).filter(Boolean), lookup };
+    this.userFetch = userFetch || createGuardedFetch(this.guard);
+  }
+  async close() { await (this.userFetch as any).close?.(); }
 
   /** May this user point a provider at their own base URL? (ALLOW_USER_BASE_URL = off | admin | all) */
   async canSetBaseUrl(userId: string): Promise<boolean> {
@@ -40,7 +47,7 @@ export class LLMService {
   }
   /** SSRF guard for user-supplied URLs (env URLs are trusted). */
   async checkBaseUrl(url: string) {
-    await assertSafeBaseUrl(url, { allowPrivate: this.cfg.LLM_ALLOW_PRIVATE_URLS, allowlist: this.cfg.LLM_URL_ALLOWLIST.split(',').map(h => h.trim().toLowerCase()).filter(Boolean), lookup: this.lookup });
+    await assertSafeBaseUrl(url, this.guard);
   }
 
   /* ---------- settings & credentials ---------- */
@@ -124,7 +131,7 @@ export class LLMService {
     if (p.userBaseUrl) await this.checkBaseUrl(p.baseUrl);   // before consuming quota
     await this.consume(userId);
     try {
-      const r = await callProvider(p, req, { fetch: this.fetchFn, timeoutMs: opts.timeoutMs || this.cfg.LLM_TIMEOUT_MS, totalTimeoutMs: this.cfg.LLM_TOTAL_TIMEOUT_MS, retries: this.cfg.LLM_MAX_RETRIES, allowEmpty: opts.allowEmpty });
+      const r = await callProvider(p, req, { fetch: p.userBaseUrl ? this.userFetch : this.fetchFn, timeoutMs: opts.timeoutMs || this.cfg.LLM_TIMEOUT_MS, totalTimeoutMs: this.cfg.LLM_TOTAL_TIMEOUT_MS, retries: this.cfg.LLM_MAX_RETRIES, allowEmpty: opts.allowEmpty });
       await this.log(userId, kind, { provider: p.id, model: p.model, ms: r.ms, ok: true, attempts: r.attempts, usage: r.usage, jsonFallback: r.jsonFallback || undefined }, projectId);
       return r;
     } catch (e: any) {
