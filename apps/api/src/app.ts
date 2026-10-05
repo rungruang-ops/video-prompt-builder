@@ -13,6 +13,7 @@ import { seedAdmin, seedSystemPresets } from './db/seed.js';
 import { createKV, kvRateStore, type KV } from './lib/kv.js';
 import { parseKey } from './lib/crypto.js';
 import { AppError, unauthorized } from './lib/errors.js';
+import { tokenIsCurrent } from './lib/sessions.js';
 import { LLMService } from './llm/service.js';
 import type { FetchFn } from './llm/client.js';
 import type { LookupFn } from './lib/netguard.js';
@@ -24,9 +25,10 @@ import aiRoutes from './routes/ai.js';
 export const VERSION = '1.0.0';
 declare module 'fastify' {
   interface FastifyInstance { db: Db; kv: KV; cfg: Config; llm: LLMService; authenticate: (req: FastifyRequest) => Promise<void> }
-  interface FastifyRequest { uid?: string; role?: 'admin' | 'user'; email?: string }
+  interface FastifyRequest { uid?: string; role?: 'admin' | 'user'; email?: string; tv?: number }
 }
-declare module '@fastify/jwt' { interface FastifyJWT { payload: { sub: string; role: 'admin' | 'user' }; user: { sub: string; role: 'admin' | 'user' } } }
+// tv = users.token_version at issue time (session revocation); optional so pre-revocation tokens still decode
+declare module '@fastify/jwt' { interface FastifyJWT { payload: { sub: string; role: 'admin' | 'user'; tv?: number }; user: { sub: string; role: 'admin' | 'user'; tv?: number } } }
 
 export interface AppDeps { db?: Db; kv?: KV; fetch?: FetchFn; logger?: boolean | object; lookup?: LookupFn }
 
@@ -69,7 +71,7 @@ export async function buildApp(cfg: Config, deps: AppDeps = {}): Promise<Fastify
 
   // Decode the session early (non-fatal) so rate limits can key on the user id.
   app.addHook('onRequest', async req => {
-    try { const p = await req.jwtVerify<{ sub: string; role: 'admin' | 'user' }>(); req.uid = p.sub; req.role = p.role; } catch { /* anonymous */ }
+    try { const p = await req.jwtVerify<{ sub: string; role: 'admin' | 'user'; tv?: number }>(); req.uid = p.sub; req.role = p.role; req.tv = Number(p.tv ?? 0); } catch { /* anonymous */ }
   });
   await app.register(rateLimit, {
     global: true, max: cfg.API_RATE_PER_MIN, timeWindow: '1 minute', redis: kv.redis, nameSpace: 'rl:', ...(kv.hit ? { store: kvRateStore(kv) as any } : {}),
@@ -79,8 +81,10 @@ export async function buildApp(cfg: Config, deps: AppDeps = {}): Promise<Fastify
 
   app.decorate('authenticate', async (req: FastifyRequest) => {
     if (!req.uid) throw unauthorized();
-    const r = await db.query('SELECT id, role, email FROM users WHERE id = $1', [req.uid]);
+    // one indexed lookup per authenticated request: role changes and revocations take effect immediately
+    const r = await db.query('SELECT id, role, email, token_version FROM users WHERE id = $1', [req.uid]);
     if (!r.rowCount) throw unauthorized('session is no longer valid');
+    if (!tokenIsCurrent(req.tv, r.rows[0].token_version)) throw new AppError(401, 'session_revoked', 'session ถูกยกเลิก (ออกจากระบบทุกอุปกรณ์ / เปลี่ยนรหัสผ่าน) — กรุณาเข้าสู่ระบบใหม่');
     req.role = r.rows[0].role; req.email = r.rows[0].email;
   });
 
