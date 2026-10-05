@@ -79,6 +79,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     if (placeholder.test(decoded) || /^(.)\1+$/s.test(decoded)) problems.push('ENCRYPTION_KEY still uses a placeholder value');
     let dbPw = ''; try { dbPw = decodeURIComponent(new URL(c.DATABASE_URL).password); } catch { /* not a URL */ }
     if (placeholder.test(dbPw) || dbPw === 'vpb') problems.push('DATABASE_URL uses a default/placeholder password');
+    let redisPw = ''; try { redisPw = decodeURIComponent(new URL(c.REDIS_URL).password); } catch { /* empty / not a URL */ }
+    if (placeholder.test(redisPw)) problems.push('REDIS_URL uses a placeholder password (set REDIS_PASSWORD — npm run env:init)');
     if (!c.ALLOW_STUB_LLM) for (const k of Object.keys(c) as (keyof Config)[])
       if (k.endsWith('_BASE_URL') && /\/\/(stub-llm|localhost:9999|127\.0\.0\.1:9999)\b/.test(String(c[k]))) problems.push(`${k} points at the stub LLM (set ALLOW_STUB_LLM=true only for demos)`);
   }

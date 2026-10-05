@@ -40,6 +40,11 @@ export interface AppDeps {
   userFetch?: FetchFn;
 }
 
+/** a non-loopback Redis URL without credentials (anyone on that network could read/flush rate-limit and quota keys) */
+export function redisWithoutPassword(url: string): boolean {
+  try { const u = new URL(url); return !u.password && !['localhost', '127.0.0.1', '[::1]'].includes(u.hostname); } catch { return false; }
+}
+
 export async function buildApp(cfg: Config, deps: AppDeps = {}): Promise<FastifyInstance> {
   const app = Fastify({
     trustProxy: cfg.TRUST_PROXY as any, bodyLimit: 1024 * 1024,
@@ -50,6 +55,7 @@ export async function buildApp(cfg: Config, deps: AppDeps = {}): Promise<Fastify
   const db = deps.db || createPool(cfg.DATABASE_URL, { ssl: cfg.DATABASE_SSL as SslMode, max: cfg.DB_POOL_MAX });
   const kv = deps.kv || createKV(cfg.REDIS_URL, restKvOptions(cfg));
   if (kv.kind === 'memory' && cfg.NODE_ENV === 'production') app.log.warn('REDIS_URL not set: rate limits/quotas are per-instance (in-memory)');
+  if (kv.kind === 'redis' && cfg.NODE_ENV === 'production' && redisWithoutPassword(cfg.REDIS_URL)) app.log.warn('REDIS_URL has no password: protect Redis with requirepass (docker compose: REDIS_PASSWORD)');
   app.decorate('db', db); app.decorate('kv', kv); app.decorate('cfg', cfg);
   app.decorate('llm', new LLMService(db, cfg, kv, deps.fetch || fetch, parseKey(cfg.ENCRYPTION_KEY), deps.lookup, 'userFetch' in deps ? deps.userFetch : deps.fetch));
   app.addHook('onClose', async () => { await app.llm.close(); if (!deps.db) await db.end(); if (!deps.kv) await kv.close(); });

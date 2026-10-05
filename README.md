@@ -74,13 +74,14 @@ video-prompt-builder-app/
 ต้องมี Docker Engine 24+ และ Docker Compose v2
 
 ```bash
-npm run env:init          # = node scripts/env-init.mjs → สร้าง .env + JWT_SECRET / ENCRYPTION_KEY / POSTGRES_PASSWORD แบบสุ่ม
+npm run env:init          # = node scripts/env-init.mjs → สร้าง .env + JWT_SECRET / ENCRYPTION_KEY / POSTGRES_PASSWORD / REDIS_PASSWORD แบบสุ่ม
 # (ไม่มี Node บนเครื่อง? cp .env.example .env แล้วแทนทุก CHANGE-ME ด้วย:
-#    openssl rand -base64 48 → JWT_SECRET · openssl rand -base64 32 → ENCRYPTION_KEY · openssl rand -hex 24 → POSTGRES_PASSWORD)
+#    openssl rand -base64 48 → JWT_SECRET · openssl rand -base64 32 → ENCRYPTION_KEY · openssl rand -hex 24 → POSTGRES_PASSWORD และ REDIS_PASSWORD)
 # ENCRYPTION_KEY ห้ามเปลี่ยนภายหลัง ไม่งั้น API key ที่ผู้ใช้บันทึกไว้จะถอดรหัสไม่ได้
 # ใส่ API key ของ provider ที่ต้องการ เช่น OPENAI_API_KEY=...
 
 docker compose up -d --build      # api รันแบบ NODE_ENV=production (ปฏิเสธ secret ที่เป็น placeholder)
+# Redis เปิด requirepass จาก REDIS_PASSWORD (compose ไม่ยอมสตาร์ทถ้าไม่ได้ตั้ง) และ api ต่อด้วย redis://:<REDIS_PASSWORD>@redis:6379
 # เปิด http://localhost:8080  (เปลี่ยนพอร์ตด้วย WEB_PORT ใน .env)
 # ผู้ใช้คนแรกที่สมัคร = admin  (หรือกำหนด ADMIN_EMAIL / ADMIN_PASSWORD ให้ seed ตอนเริ่ม)
 ```
@@ -104,7 +105,11 @@ docker compose logs -f api              # log (JSON/pino)
 docker compose down                     # หยุด (ข้อมูลยังอยู่ใน volume pgdata/redisdata)
 docker compose down -v                  # หยุด + ลบข้อมูลทั้งหมด ⚠️
 docker compose exec postgres pg_dump -U vpb vpb > backup.sql   # สำรองข้อมูล
+docker compose exec redis sh -c 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli info keyspace'   # เข้า Redis (ต้องใช้รหัสผ่าน)
 ```
+
+> **อัปเกรดจากเวอร์ชันก่อน:** `.env` เดิมไม่มี `REDIS_PASSWORD` → `docker compose up` จะหยุดพร้อมข้อความ `set REDIS_PASSWORD in .env`
+> ให้เพิ่มบรรทัด `REDIS_PASSWORD=$(openssl rand -hex 24)` (ตัวอักษร URL-safe เท่านั้น: a-z A-Z 0-9 `-` `_`) แล้ว `docker compose up -d` — ข้อมูลใน volume `redisdata` ใช้ต่อได้
 
 > ใช้ Ollama บนเครื่อง host: container เรียก `http://host.docker.internal:11434/v1` ให้อัตโนมัติ (ตั้ง `OLLAMA_BASE_URL_DOCKER` เพื่อเปลี่ยน)
 > และต้องให้ Ollama ฟังบน 0.0.0.0 (`OLLAMA_HOST=0.0.0.0 ollama serve`)
@@ -141,7 +146,8 @@ npm run dev                     # แบบไม่มี stub (ใช้ provi
 | `DB_POOL_MAX` / `DB_CONNECT_RETRIES` | `10` / `30` (Vercel: `3` / `2`) | ขนาด connection pool / จำนวนครั้งรอ DB ตอนสตาร์ท |
 | `MIGRATE_ON_START` | `true` (Vercel: `false`) | รัน migration + seed system presets ตอนสตาร์ท (ปิดแล้วใช้ `npm run migrate`) |
 | `MIGRATE_ON_BUILD` | ว่าง | Vercel: `true` = รัน migration ระหว่าง build ของ production deployment (preview ไม่ migrate) |
-| `REDIS_URL` | `redis://localhost:6379` | Redis/Upstash ผ่าน TCP (`rediss://…upstash.io:6379`) · ว่าง = ใช้ REST ด้านล่าง หรือ in-memory (instance เดียว) |
+| `REDIS_PASSWORD` | — | ใช้โดย compose: Redis เปิด `requirepass` และ api สร้าง `REDIS_URL` เอง — **ต้องตั้ง** (env:init สุ่มให้; ใช้ตัวอักษร URL-safe) |
+| `REDIS_URL` | `redis://localhost:6379` | Redis/Upstash ผ่าน TCP (`rediss://…upstash.io:6379`; มีรหัสผ่าน: `redis://:<pw>@host:6379`) · production เตือนใน log ถ้า Redis ที่ไม่ใช่ localhost ไม่มีรหัสผ่าน และไม่ยอมสตาร์ทถ้ารหัสเป็น placeholder · ว่าง = ใช้ REST ด้านล่าง หรือ in-memory (instance เดียว) |
 | `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` (หรือ `KV_REST_API_URL` / `KV_REST_API_TOKEN` จาก Vercel) | ว่าง | Upstash ผ่าน HTTPS REST — ใช้เมื่อ `REDIS_URL` ว่าง |
 | `JWT_SECRET` | `CHANGE-ME` | ≥ 32 ตัวอักษร — `openssl rand -base64 48` |
 | `JWT_EXPIRES_IN` | `7d` | อายุ session |
@@ -178,7 +184,7 @@ npm run typecheck                         # TypeScript (api + tests)
 npm test -w packages/core                 # unit tests ของ compiler/taxonomy (node:test)
 npm test -w apps/api                      # unit + API tests (vitest) — ต้องมี Postgres: TEST_DATABASE_URL
                                           #   ค่าเริ่มต้น postgres://vpb:vpb@localhost:5432/vpb_test (ฐานนี้จะถูกล้าง!)
-TEST_REDIS_URL=redis://localhost:6379/15 npm test -w apps/api   # ทดสอบ rate limit/quota กับ Redis จริง
+TEST_REDIS_URL=redis://localhost:6379/15 npm test -w apps/api   # ทดสอบ rate limit/quota กับ Redis จริง (มีรหัสผ่าน: redis://:<pw>@localhost:6379/15)
 npm test                                  # core + api
 npm run build                             # tsc (api) + vite build (web)
 
@@ -197,7 +203,7 @@ API tests ใช้ **fake fetch** แทน provider จริง (เส้น
 การ parse คำตอบ, JSON-mode fallback, retry/timeout, การเพิกถอน session, หน้า admin (สิทธิ์, ค้นหา, ระงับ/เปิดบัญชี, กัน admin คนสุดท้าย/ระงับตัวเอง), การแปลง error (401→`provider_auth`, 429→`provider_rate_limited`, 5xx→`provider_error`,
 timeout→`provider_timeout`), เข้ารหัส key ใน DB, แยกข้อมูลระหว่างผู้ใช้, cache คำแปล, quota/rate limit, security headers, CORS
 
-CI (`.github/workflows/ci.yml`) รันทั้งหมดนี้บน GitHub Actions พร้อม service containers Postgres/Redis + Playwright + docker build
+CI (`.github/workflows/ci.yml`) รันทั้งหมดนี้บน GitHub Actions พร้อม service containers Postgres/Redis (Redis ตั้ง `requirepass` เหมือน compose) + Playwright (ผ่าน `vite preview` ที่ส่ง CSP เดียวกับ production) + `docker compose --profile stub up` จริงด้วย `.env` จาก `env:init` แล้วรัน smoke
 
 ## 7. API (สรุป) — base `/api/v1`, ตอบ error รูปแบบ `{ "error": { "code", "message", "details" } }`
 
@@ -236,7 +242,7 @@ CI (`.github/workflows/ci.yml`) รันทั้งหมดนี้บน Gi
 - SSRF: base URL ที่ผู้ใช้กำหนด (`ALLOW_USER_BASE_URL=admin|all`) ต้องผ่านการตรวจ DNS/IP (ห้าม loopback, private, link-local/metadata 169.254.169.254, CGNAT, ULA …), ห้ามมี user:pass, ไม่ follow redirect, **ตรวจ IP ซ้ำตอนเชื่อมต่อจริง** (undici Agent + `lookup` ที่ปฏิเสธ IP ภายในแล้วส่งเฉพาะ IP ที่ตรวจแล้วให้ socket — ปิดช่อง DNS rebinding; Host header/TLS SNI ยังเป็นชื่อโฮสต์เดิม; ถ้า DNS เปลี่ยนเป็น IP ภายในหลังผ่านการตรวจรอบแรก → `400 unsafe_base_url`), ไม่ได้รับ key ของ server และผลแปลจาก endpoint ของผู้ใช้ไม่เข้า cache กลาง
 - Validation ทุก endpoint ด้วย zod, จำกัดขนาด body, rate limit ต่อผู้ใช้/IP (Redis/Upstash), quota LLM รายวัน; ทุก query เป็น parameterized SQL
 - Security headers: helmet (API) + nginx / `vercel.json` (CSP เข้มงวด `script-src 'self'; style-src 'self'` — **ไม่มี `'unsafe-inline'`**: UI ไม่ใช้ inline style เลย สีแบบ dynamic ส่งผ่าน `data-*` แล้วตั้งด้วย CSSOM; `vite preview` ส่ง header ชุดเดียวกับ production ทำให้ e2e ตรวจว่าไม่มี CSP violation, `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`, COOP, HSTS บน Vercel); UI escape ข้อความของผู้ใช้/LLM ทุกจุด (มี e2e test ตรวจ XSS)
-- Production ปฏิเสธการสตาร์ทถ้า secret/รหัสผ่าน DB เป็น placeholder หรือชี้ไปที่ stub LLM; Postgres/Redis ใน compose ไม่เปิดพอร์ตออก host; container api รันเป็น user `node`
+- Production ปฏิเสธการสตาร์ทถ้า secret/รหัสผ่าน DB/Redis เป็น placeholder หรือชี้ไปที่ stub LLM; Postgres/Redis ใน compose ไม่เปิดพอร์ตออก host และต้องใช้รหัสผ่านทั้งคู่ (Redis: `requirepass` จาก `REDIS_PASSWORD`, ไม่อยู่ใน command line ของ process); container api รันเป็น user `node`
 - CI: `permissions: contents: read`, actions pin ด้วย commit SHA, `persist-credentials: false`, ไม่ใช้ `pull_request_target`, secret ของ CI สุ่มใหม่ทุก run, `npm audit --audit-level=high`
 - ดู [SECURITY.md](SECURITY.md) สำหรับการแจ้งช่องโหว่
 

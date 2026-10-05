@@ -34,7 +34,6 @@ jobs:
           --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 20
     env:
       TEST_DATABASE_URL: postgres://vpb:vpb@localhost:5432/vpb_test
-      TEST_REDIS_URL: redis://localhost:6379/15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -44,6 +43,14 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - name: Require a Redis password (like docker compose) and export the authenticated URL
+        env:
+          REDIS_CONTAINER: ${{ job.services.redis.id }}
+        run: |
+          REDIS_PASSWORD="$(openssl rand -hex 24)"; echo "::add-mask::$REDIS_PASSWORD"
+          printf 'CONFIG SET requirepass %s\n' "$REDIS_PASSWORD" | docker exec -i "$REDIS_CONTAINER" redis-cli
+          noauth="$(docker exec "$REDIS_CONTAINER" redis-cli ping 2>&1 || true)"; [[ "$noauth" == *NOAUTH* ]]   # unauthenticated access is refused
+          echo "TEST_REDIS_URL=redis://:$REDIS_PASSWORD@localhost:6379/15" >> "$GITHUB_ENV"
       - name: Typecheck
         run: npm run typecheck
       - name: Core unit tests (shared compiler/taxonomy)
@@ -77,7 +84,6 @@ jobs:
     env:
       NODE_ENV: development
       DATABASE_URL: postgres://vpb:pgpw_${{ github.run_id }}@localhost:5432/vpb
-      REDIS_URL: redis://localhost:6379
       CUSTOM_LLM_BASE_URL: http://localhost:9999/v1
       CUSTOM_LLM_MODEL: stub-model
       LOG_LEVEL: warn
@@ -90,6 +96,14 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - name: Require a Redis password (like docker compose) and export the authenticated URL
+        env:
+          REDIS_CONTAINER: ${{ job.services.redis.id }}
+        run: |
+          REDIS_PASSWORD="$(openssl rand -hex 24)"; echo "::add-mask::$REDIS_PASSWORD"
+          printf 'CONFIG SET requirepass %s\n' "$REDIS_PASSWORD" | docker exec -i "$REDIS_CONTAINER" redis-cli
+          noauth="$(docker exec "$REDIS_CONTAINER" redis-cli ping 2>&1 || true)"; [[ "$noauth" == *NOAUTH* ]]   # unauthenticated access is refused
+          echo "REDIS_URL=redis://:$REDIS_PASSWORD@localhost:6379" >> "$GITHUB_ENV"
       - name: Generate throwaway secrets for this run
         run: |
           echo "JWT_SECRET=$(openssl rand -base64 48 | tr -d '\n')" >> "$GITHUB_ENV"
@@ -143,7 +157,26 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Build images
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - name: Generate .env (npm run env:init — random JWT/encryption/Postgres/Redis secrets) + stub LLM
         run: |
-          docker build -f apps/api/Dockerfile -t vpb-api:ci .
-          docker build -f apps/web/Dockerfile -t vpb-web:ci .
+          node scripts/env-init.mjs
+          sed -i -e 's#^CUSTOM_LLM_BASE_URL=.*#CUSTOM_LLM_BASE_URL=http://stub-llm:9999/v1#' -e 's#^CUSTOM_LLM_MODEL=.*#CUSTOM_LLM_MODEL=stub-model#' \
+            -e 's#^ALLOW_STUB_LLM=.*#ALLOW_STUB_LLM=true#' .env
+      - name: Build images and start the compose stack (production mode, stub profile)
+        run: docker compose --profile stub up -d --build --wait --wait-timeout 300
+      - name: Stack smoke (health, Redis requires auth, strict CSP, register → AI → versions)
+        run: |
+          health="$(curl -fsS http://localhost:8080/api/v1/health)"; echo "$health"
+          [[ "$health" == *'"cache":{"kind":"redis","ok":true}'* ]]                 # the api authenticates to Redis
+          noauth="$(docker compose exec -T redis redis-cli ping 2>&1 || true)"; echo "$noauth"
+          [[ "$noauth" == *NOAUTH* ]]                                               # unauthenticated access is refused
+          csp="$(curl -fsSI http://localhost:8080/)"; csp="$(grep -i '^content-security-policy:' <<< "$csp")"; echo "$csp"
+          [[ "$csp" == *"style-src 'self';"* && "$csp" != *unsafe-inline* ]]
+          node scripts/smoke.mjs http://localhost:8080
+      - if: failure()
+        run: docker compose --profile stub logs --tail 200 || true
+      - if: always()
+        run: docker compose --profile stub down -v || true
