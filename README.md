@@ -38,7 +38,7 @@ video-prompt-builder-app/
 ├── package.json               # npm workspaces + scripts รวม (dev, build, test, e2e)
 ├── docker-compose.yml         # postgres, redis, api, web (+ stub-llm ใน profile "stub")
 ├── .env.example               # ตัวแปรทั้งหมด (คัดลอกเป็น .env)
-├── vercel.json                # Vercel: static SPA + Function /api/*, rewrites, security headers, maxDuration
+├── vercel.json                # Vercel: static SPA + Function /api/*, rewrites, security headers, maxDuration, region (sin1)
 ├── api/index.mjs              # Vercel Function entry → apps/api/src/vercel.ts
 ├── SECURITY.md                # วิธีแจ้งช่องโหว่
 ├── .github/workflows/ci.yml   # CI: typecheck, unit+API tests (Postgres+Redis), audit, Playwright e2e, Vercel adapter smoke, docker build
@@ -257,9 +257,9 @@ PostgreSQL ภายนอก (Neon) + Redis ภายนอก (Upstash) · **m
 1. **Import repo**: Vercel Dashboard → *Add New… → Project* → เลือก GitHub repo `video-prompt-builder`
    - Framework Preset: **Other** (ค่าใน `vercel.json` กำหนด install/build/output ให้แล้ว — ไม่ต้องแก้ Root Directory)
    - Node.js Version: 24.x (อ่านจาก `engines` ใน `package.json`)
-2. **สร้าง Postgres (Neon)**: แท็บ *Storage* (Marketplace) → **Neon** → Create → Connect กับโปรเจกต์
+2. **สร้าง Postgres (Neon)**: แท็บ *Storage* (Marketplace) → **Neon** → Create (region **Singapore `sin1`** ให้ตรงกับ Function) → Connect กับโปรเจกต์
    (Vercel จะใส่ `DATABASE_URL` แบบ pooled และ `DATABASE_URL_UNPOOLED` ให้) — หรือสร้างที่ neon.tech แล้วคัดลอก connection string เอง
-3. **สร้าง Redis (Upstash)**: แท็บ *Storage* → **Upstash for Redis** → Create → Connect
+3. **สร้าง Redis (Upstash)**: แท็บ *Storage* → **Upstash for Redis** → Create (primary region **`sin1`**) → Connect
    (จะได้ `REDIS_URL` แบบ `rediss://` และ/หรือ `KV_REST_API_URL` + `KV_REST_API_TOKEN` — แอปรองรับทั้งสองแบบ, ถ้ามี `REDIS_URL` จะใช้ TCP ก่อน)
 4. <a id="vercel-env"></a>**ตั้ง Environment Variables** (*Settings → Environment Variables*, เลือก Production + Preview):
 
@@ -301,6 +301,7 @@ node scripts/smoke.mjs http://localhost:3000
 ```
 
 ### ข้อควรรู้บน Vercel
+- **Region**: `vercel.json` ตั้ง `"regions": ["sin1"]` (สิงคโปร์) ให้ Function อยู่ใกล้ Neon/Upstash — ตอนสร้าง Neon/Upstash ให้เลือก region `sin1` ให้ตรงกัน (ถ้า DB อยู่คนละ region ทุก query จะช้าขึ้นหลายร้อย ms) · ถ้าย้าย DB ไป region อื่น ให้แก้ค่านี้ตาม · Hobby รองรับ Function ได้ 1 region (ห้ามใส่หลายค่า)
 - Function เป็น serverless: connection pool เล็ก (`DB_POOL_MAX=3`) + ใช้ Neon pooled URL; rate limit/quota ต้องมี Redis/Upstash (ถ้าไม่มีจะนับแยกต่อ instance)
 - คำขอ AI ที่ยาวกว่า ~100 วินาทีจะได้ `provider_timeout` (Hobby รองรับ `maxDuration` สูงสุด 300s — ปรับใน `vercel.json` และ `LLM_TOTAL_TIMEOUT_MS` ได้)
 - `ALLOW_USER_BASE_URL` ควรเป็น `off` บน Vercel (endpoint ภายในใช้ไม่ได้อยู่แล้ว)
