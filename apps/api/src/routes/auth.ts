@@ -3,8 +3,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z, parse } from '../lib/validate.js';
 import { AppError } from '../lib/errors.js';
 import { hashPassword, verifyPassword } from '../lib/password.js';
-import { durationToSec } from '../config.js';
-import { revokeSessions, tokenIsCurrent } from '../lib/sessions.js';
+import { revokeSessions, setSessionCookie, tokenIsCurrent } from '../lib/sessions.js';
 
 // trim/lowercase first, then validate the normalized value (zod 4: z.email() is a top-level format)
 const Email = z.string().trim().toLowerCase().pipe(z.email().max(254));
@@ -18,10 +17,7 @@ let dummy = '';
 export default async function authRoutes(app: FastifyInstance) {
   const { db, cfg } = app;
   const authLimit = { rateLimit: { max: cfg.AUTH_RATE_PER_MIN, timeWindow: '1 minute', keyGenerator: (req: any) => 'auth:' + clientIp(req) } };
-  const setSession = async (reply: FastifyReply, u: any) => {
-    const token = await reply.jwtSign({ sub: u.id, role: u.role, tv: Number(u.token_version ?? 0) });
-    reply.setCookie(cfg.COOKIE_NAME, token, { path: '/', httpOnly: true, sameSite: 'lax', secure: cfg.COOKIE_SECURE, maxAge: durationToSec(cfg.JWT_EXPIRES_IN) });
-  };
+  const setSession = (reply: FastifyReply, u: any) => setSessionCookie(reply, cfg, u);
   const clearSession = (reply: FastifyReply) => reply.clearCookie(cfg.COOKIE_NAME, { path: '/', httpOnly: true, sameSite: 'lax', secure: cfg.COOKIE_SECURE });
 
   app.post('/register', { config: authLimit }, async (req, reply) => {
@@ -54,6 +50,8 @@ export default async function authRoutes(app: FastifyInstance) {
     if (!dummy) dummy = await hashPassword('dummy-password-for-timing');
     const ok = await verifyPassword(b.password, u ? u.password_hash : dummy);
     if (!u || !ok) throw new AppError(401, 'invalid_credentials', 'อีเมลหรือรหัสผ่านไม่ถูกต้อง');
+    // checked only after the password, so the disabled state is not revealed to someone without the password
+    if (u.disabled_at) throw new AppError(403, 'account_disabled', 'บัญชีนี้ถูกระงับ — ติดต่อผู้ดูแลระบบ');
     await db.query('UPDATE users SET last_login_at = now() WHERE id = $1', [u.id]);
     await setSession(reply, u);
     await app.llm.log(u.id, 'auth.login', {});
@@ -98,7 +96,7 @@ export default async function authRoutes(app: FastifyInstance) {
     const config = { registrationOpen: count === 0 || cfg.REGISTRATION_OPEN, firstUser: count === 0 };
     if (!req.uid) return { user: null, config };
     const u = (await db.query('SELECT * FROM users WHERE id = $1', [req.uid])).rows[0];
-    if (!u || !tokenIsCurrent(req.tv, u.token_version)) { clearSession(reply); return { user: null, config }; }   // deleted user / revoked session
+    if (!u || u.disabled_at || !tokenIsCurrent(req.tv, u.token_version)) { clearSession(reply); return { user: null, config }; }   // deleted/disabled user, revoked session
     return { user: pub(u), config };
   });
 

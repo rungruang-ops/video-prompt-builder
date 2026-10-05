@@ -1,0 +1,26 @@
+/* Admin user management — classes only, no inline styles (strict CSP) */
+.adm{display:grid;gap:12px}
+.admstats{display:flex;flex-wrap:wrap;gap:6px 14px}
+.admstats b{color:var(--tx)}
+.admbar{display:grid;grid-template-columns:1fr 150px 150px;gap:8px}
+.admlist{max-height:58vh}
+.admrow{flex-wrap:wrap}
+.admrow.off{opacity:.62;border-style:dashed}
+.admrow .pi b{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:13.5px}
+.admuse{display:flex;flex-direction:column;align-items:flex-end;gap:3px;min-width:210px}
+.admuse b{color:var(--tx);font-weight:600}
+.admq{display:inline-flex;align-items:center;gap:6px}
+.admq progress{width:70px;height:6px;appearance:none;border:0;border-radius:6px;background:var(--line);overflow:hidden}
+.admq progress::-webkit-progress-bar{background:var(--line);border-radius:6px}
+.admq progress::-webkit-progress-value{background:var(--ok);border-radius:6px}
+.admq progress::-moz-progress-bar{background:var(--ok);border-radius:6px}
+.admq.high progress::-webkit-progress-value{background:var(--warn)}.admq.high progress::-moz-progress-bar{background:var(--warn)}
+.admq.full progress::-webkit-progress-value{background:var(--err)}.admq.full progress::-moz-progress-bar{background:var(--err)}
+.admrole{width:auto;min-width:110px;padding:6px 10px;font-size:12.5px}
+.admtoggle{min-width:104px;justify-content:center}
+.admtoggle:disabled{opacity:.45;cursor:not-allowed}
+.badge.adm{color:var(--warn);border-color:#fbbf2455}
+.badge.dis{color:var(--err);border-color:#f8717155}
+.admpager{display:flex;align-items:center;gap:8px}
+.admnote{margin:0;font-size:12px;color:var(--tx3);line-height:1.6}
+@media (max-width:760px){.admbar{grid-template-columns:1fr}.admuse{align-items:flex-start;min-width:0}}

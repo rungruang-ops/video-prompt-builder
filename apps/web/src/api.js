@@ -12,7 +12,7 @@ async function req(method, path, body) {
   try { data = text ? JSON.parse(text) : null; } catch (e) { /* non-JSON */ }
   if (!res.ok) {
     const er = (data && data.error) || {};
-    if (res.status === 401 && !/^\/auth\/(me|login|register)/.test(path)) window.dispatchEvent(new CustomEvent('vpb:unauthorized'));
+    if (res.status === 401 && !/^\/auth\/(me|login|register)/.test(path)) window.dispatchEvent(new CustomEvent('vpb:unauthorized', { detail: { code: er.code } }));
     throw new ApiError(res.status, er.code || 'http_' + res.status, er.message || res.statusText || 'request failed', er.details);
   }
   return data;

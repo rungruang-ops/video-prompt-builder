@@ -2,6 +2,7 @@
 import * as C from '@vpb/core';
 import { api } from './api.js';
 import { initAccount } from './account.js';
+import { initAdmin } from './admin.js';
 const { GROUPS, STEPS, G2S, OPT, MODELS, MOD, blank, clone, esc, TH_RE, isTh, M, strip, capM, art, stripPrep, joinList, S, sel, has, any, ph, pm, buildParts, autoNeg, negList, audioLines, sentence, sceneSentence, openerSentence, styleSentence, lightSentence, lensSentence, shotsText, FORMATTERS, compile, NIGHT, allIds, dur, shotSum, RULES, thaiFields, evalConflicts, WEIGHTS, score, paramsObj, specJSON, thaiSummary, taxonomyForLLM, applyParsed, tr, withState, normalizeSpec, analyze } = C;
 const trCache = C.trCache;
 let PRESETS = C.PRESETS.map(p => ({...p, system: true}));
@@ -652,7 +653,7 @@ function renderSaveStatus() {
 function renderProjectBtn() { const b = $('#btnProjects'); if (b) b.innerHTML = `📁 <b>${esc(OFFLINE ? 'ออฟไลน์' : (PROJ.name || 'โปรเจกต์'))}</b> ▾`; }
 function renderUser() {
   const el = $('#userMenu'); if (!el) return;
-  el.innerHTML = USER ? `<button class="btn sm uname" id="btnAccount" title="บัญชีของฉัน — ${esc(USER.email)}">👤 ${esc(USER.displayName || USER.email)}${USER.role === 'admin' ? ' <i>admin</i>' : ''}</button><button class="btn sm" id="btnLogout" title="ออกจากระบบ (เครื่องนี้)">⎋ ออก</button>`
+  el.innerHTML = USER ? `${USER.role === 'admin' ? '<button class="btn sm" id="btnAdmin" title="จัดการผู้ใช้ (admin)">👥 ผู้ใช้</button>' : ''}<button class="btn sm uname" id="btnAccount" title="บัญชีของฉัน — ${esc(USER.email)}">👤 ${esc(USER.displayName || USER.email)}${USER.role === 'admin' ? ' <i>admin</i>' : ''}</button><button class="btn sm" id="btnLogout" title="ออกจากระบบ (เครื่องนี้)">⎋ ออก</button>`
     : `<button class="btn sm" id="btnLogout">🔑 เข้าสู่ระบบ</button>`;
 }
 async function openProject(p) {
@@ -732,7 +733,9 @@ document.addEventListener('click', async e => {
 });
 window.addEventListener('beforeunload', () => { if (PROJ.dirty && !OFFLINE && PROJ.id) { try { fetch(api.base + `/projects/${PROJ.id}`, {method: 'PATCH', credentials: 'include', keepalive: true, headers: {'content-type': 'application/json'}, body: JSON.stringify({spec: state})}); } catch(e) {} } });
 initAccount(() => ({ user: USER, esc, openModal, closeModal, toast, errMsg, flushSave }));
-window.addEventListener('vpb:unauthorized', () => { if (!OFFLINE) { toast('🔑 Session หมดอายุ — กรุณาเข้าสู่ระบบใหม่'); setTimeout(() => location.reload(), 1500); } });
+initAdmin(() => ({ user: USER, esc, openModal, closeModal, toast, errMsg, fmtDate }));
+const LOGOUT_MSG = { account_disabled: '⛔ บัญชีนี้ถูกระงับ — ติดต่อผู้ดูแลระบบ', session_revoked: '🔑 Session ถูกยกเลิก (ออกจากระบบทุกอุปกรณ์ / เปลี่ยนรหัสผ่าน / สิทธิ์ถูกเปลี่ยน) — กรุณาเข้าสู่ระบบใหม่' };
+window.addEventListener('vpb:unauthorized', e => { if (!OFFLINE) { toast(LOGOUT_MSG[e.detail?.code] || '🔑 Session หมดอายุ — กรุณาเข้าสู่ระบบใหม่'); setTimeout(() => location.reload(), 1500); } });
 
 /** Entry point (called by main.js after authentication, or in offline mode). */
 export async function startApp({user = null, offline = false} = {}) {

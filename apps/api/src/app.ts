@@ -21,6 +21,7 @@ import authRoutes from './routes/auth.js';
 import projectRoutes from './routes/projects.js';
 import metaRoutes from './routes/meta.js';
 import aiRoutes from './routes/ai.js';
+import adminRoutes from './routes/admin.js';
 
 export const VERSION = '1.0.0';
 declare module 'fastify' {
@@ -82,8 +83,9 @@ export async function buildApp(cfg: Config, deps: AppDeps = {}): Promise<Fastify
   app.decorate('authenticate', async (req: FastifyRequest) => {
     if (!req.uid) throw unauthorized();
     // one indexed lookup per authenticated request: role changes and revocations take effect immediately
-    const r = await db.query('SELECT id, role, email, token_version FROM users WHERE id = $1', [req.uid]);
+    const r = await db.query('SELECT id, role, email, token_version, disabled_at FROM users WHERE id = $1', [req.uid]);
     if (!r.rowCount) throw unauthorized('session is no longer valid');
+    if (r.rows[0].disabled_at) throw new AppError(401, 'account_disabled', 'บัญชีนี้ถูกระงับ — ติดต่อผู้ดูแลระบบ');
     if (!tokenIsCurrent(req.tv, r.rows[0].token_version)) throw new AppError(401, 'session_revoked', 'session ถูกยกเลิก (ออกจากระบบทุกอุปกรณ์ / เปลี่ยนรหัสผ่าน) — กรุณาเข้าสู่ระบบใหม่');
     req.role = r.rows[0].role; req.email = r.rows[0].email;
   });
@@ -115,5 +117,6 @@ export async function buildApp(cfg: Config, deps: AppDeps = {}): Promise<Fastify
   await app.register(metaRoutes, { prefix: '/api/v1' });
   await app.register(projectRoutes, { prefix: '/api/v1' });
   await app.register(aiRoutes, { prefix: '/api/v1' });
+  await app.register(adminRoutes, { prefix: '/api/v1' });
   return app;
 }
