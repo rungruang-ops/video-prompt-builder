@@ -1,5 +1,5 @@
 import { AppError } from '../lib/errors.js';
-import { redactSecrets } from '../lib/netguard.js';
+import { redactSecrets, UNSAFE_CONNECT } from '../lib/netguard.js';
 import { PROVIDERS } from './providers.js';
 import { buildRequest, parseResponse, type LLMRequest, type ResolvedProvider, type ParsedResponse } from './adapters.js';
 
@@ -38,6 +38,8 @@ export async function callProvider(p: ResolvedProvider, req: LLMRequest, o: Call
     try { res = await o.fetch(url, { ...init, redirect: 'error', signal: ctrl.signal }); }
     catch (e: any) {
       clearTimeout(timer);
+      // connect-time SSRF guard (DNS changed after the pre-check, e.g. rebinding) — never retried
+      if (e?.cause?.code === UNSAFE_CONNECT) throw new AppError(400, 'unsafe_base_url', `Base URL ไม่อนุญาต: ${def.name} ชี้ไปยัง IP ภายใน/สงวนตอนเชื่อมต่อ (ตั้ง LLM_URL_ALLOWLIST ถ้าตั้งใจ)`);
       const timeout = e?.name === 'AbortError';
       const wait = 400 * 2 ** (attempt - 1);
       if (attempt <= o.retries && !timeout && left() > wait + 1000) { await sleep(wait); continue; }

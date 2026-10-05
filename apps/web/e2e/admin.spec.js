@@ -11,6 +11,7 @@ test('admin searches users, sees usage, disables/enables an account and changes 
   const errors = [];
   for (const p of [A, U]) p.on('pageerror', e => errors.push(e.message));
   A.on('dialog', d => d.accept());
+  await A.addInitScript(() => { window.__csp = []; document.addEventListener('securitypolicyviolation', e => window.__csp.push(e.violatedDirective + ' ' + e.sample)); });
 
   // target user: registered, with one project, signed in on its own browser
   expect((await U.request.post('/api/v1/auth/register', { data: { email, password: pw, displayName: 'เป้าหมาย ทดสอบ' } })).status()).toBe(201);
@@ -67,5 +68,6 @@ test('admin searches users, sees usage, disables/enables an account and changes 
   await expect(row.locator('.badge.adm')).toHaveCount(0);
 
   expect(errors).toEqual([]);
+  expect(await A.evaluate(() => window.__csp)).toEqual([]);                       // admin UI is clean under the strict CSP (vite preview / nginx)
   await adminCtx.close(); await userCtx.close();
 });

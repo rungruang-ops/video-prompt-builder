@@ -3,6 +3,23 @@ import * as C from '@vpb/core';
 import { api } from './api.js';
 import { initAccount } from './account.js';
 import { initAdmin } from './admin.js';
+
+// Strict CSP (style-src 'self', no 'unsafe-inline'): markup never carries inline style attributes.
+// Dynamic colours travel as data-* attributes and are applied through CSSOM, which CSP allows.
+//   data-sc → --c (step/group colour) · data-bg → background · data-fg → color
+const DYN_SEL = '[data-sc],[data-bg],[data-fg]';
+function applyDynStyles(root) {
+  if (root.nodeType !== 1) return;
+  const els = root.querySelectorAll(DYN_SEL);
+  for (const el of root.matches(DYN_SEL) ? [root, ...els] : els) {
+    const d = el.dataset;
+    if (d.sc) el.style.setProperty('--c', d.sc);
+    if (d.bg) el.style.background = d.bg;
+    if (d.fg) el.style.color = d.fg;
+  }
+}
+new MutationObserver(ms => { for (const m of ms) m.addedNodes.forEach(applyDynStyles); })
+  .observe(document.documentElement, { childList: true, subtree: true });
 const { GROUPS, STEPS, G2S, OPT, MODELS, MOD, blank, clone, esc, TH_RE, isTh, M, strip, capM, art, stripPrep, joinList, S, sel, has, any, ph, pm, buildParts, autoNeg, negList, audioLines, sentence, sceneSentence, openerSentence, styleSentence, lightSentence, lensSentence, shotsText, FORMATTERS, compile, NIGHT, allIds, dur, shotSum, RULES, thaiFields, evalConflicts, WEIGHTS, score, paramsObj, specJSON, thaiSummary, taxonomyForLLM, applyParsed, tr, withState, normalizeSpec, analyze } = C;
 const trCache = C.trCache;
 let PRESETS = C.PRESETS.map(p => ({...p, system: true}));
@@ -36,12 +53,12 @@ function stepCount(s) {
 function renderNav() {
   $('#nav').innerHTML = '<div class="navtitle">ขั้นตอน</div>' + STEPS.map((s, i) => {
     const n = stepCount(s);
-    return `<button class="step ${ui.mode==='wizard'&&ui.step===i?'on':''}" data-step="${i}" style="--c:${s.c}"><span class="num">${s.e}</span><span class="sname">${i+1}. ${s.th}</span>${n?`<span class="cnt">${n}</span>`:''}</button>`;
+    return `<button class="step ${ui.mode==='wizard'&&ui.step===i?'on':''}" data-step="${i}" data-sc="${s.c}"><span class="num">${s.e}</span><span class="sname">${i+1}. ${s.th}</span>${n?`<span class="cnt">${n}</span>`:''}</button>`;
   }).join('') + `<div class="navfoot">💡 <b>เคล็ดลับ</b><br>ไม่ต้องเลือกครบทุกขั้น — ดูคะแนนความครบถ้วนทางขวา แล้วกด "➕" เฉพาะส่วนที่ขาด<br><br>เส้นใต้สีในพรีวิวบอกว่าแต่ละท่อนของ prompt มาจากขั้นตอนไหน<br><br>🔒 ล็อกกลุ่มที่ไม่อยากให้ A/B Variations เปลี่ยน</div>`;
 }
 function chipHTML(g, o, bad) {
   const on = S(g).includes(o.id), ai = state.ai[g + '.' + o.id], G_ = GROUPS[g];
-  const vis = G_.swatch && o.sw ? `<span class="sw">${o.sw.map(x => `<i style="background:${x}"></i>`).join('')}</span>` : `<span class="emo">${o.e}</span>`;
+  const vis = G_.swatch && o.sw ? `<span class="sw">${o.sw.map(x => `<i data-bg="${x}"></i>`).join('')}</span>` : `<span class="emo">${o.e}</span>`;
   const title = esc((o.en || '(พารามิเตอร์ ไม่ใส่ในข้อความ prompt)') + (o.tip ? ' — ' + o.tip : '') + (o.hl ? '  ·  Hailuo: ' + o.hl : ''));
   return `<button class="chip ${on?'on':''} ${bad.has(g+'.'+o.id)?'bad':''}" data-g="${g}" data-id="${o.id}" title="${title}" aria-pressed="${on}">${vis}<span class="lab">${esc(o.th)}</span>${G_.cards?`<span class="en">${esc(o.en||'')}</span>`:''}${ai?'<span class="ai">✨AI</span>':''}</button>`;
 }
@@ -50,8 +67,8 @@ function groupHTML(g, c, bad) {
   let opts = G_.opts;
   if (q) { opts = opts.filter(o => (o.th + ' ' + o.en + ' ' + (o.kw || []).join(' ') + ' ' + G_.th).toLowerCase().includes(q)); if (!opts.length) return ''; }
   const locked = state.locks.includes(g);
-  return `<div class="group" id="g-${g}" style="--c:${c}">
-    <div class="ghead"><span class="gtitle">${G_.e} ${G_.th}</span><span class="gmeta">${G_.max ? 'เลือกได้ ' + G_.max : 'เลือก 1'}</span>${G_.note?`<span class="gmeta" style="border-style:dashed">${G_.note}</span>`:''}<span class="sp"></span>
+  return `<div class="group" id="g-${g}" data-sc="${c}">
+    <div class="ghead"><span class="gtitle">${G_.e} ${G_.th}</span><span class="gmeta">${G_.max ? 'เลือกได้ ' + G_.max : 'เลือก 1'}</span>${G_.note?`<span class="gmeta dashed">${G_.note}</span>`:''}<span class="sp"></span>
       <button class="ib ${locked?'locked':''}" data-lock="${g}" title="ล็อกไม่ให้ A/B Variations เปลี่ยนกลุ่มนี้">${locked?'🔒 ล็อก':'🔓'}</button>
       ${any(g)?`<button class="ib" data-clear="${g}">ล้าง</button>`:''}</div>
     <div class="chips ${G_.cards?'cards':''}">${opts.map(o => chipHTML(g, o, bad)).join('')}</div>
@@ -62,36 +79,36 @@ function optSel(gid, val, attr) { return `<select ${attr}><option value="">— $
 function itemHTML(it, s, bad) {
   if (typeof it === 'string') return groupHTML(it, s.c, bad);
   if (ui.mode === 'advanced' && ui.search.trim()) return '';
-  if (it.t === 'text') return `<div class="group field" style="--c:${s.c}"><label>${it.label}<span class="hint">${it.hint||''}</span></label>
+  if (it.t === 'text') return `<div class="group field" data-sc="${s.c}"><label>${it.label}<span class="hint">${it.hint||''}</span></label>
      <textarea rows="2" data-field="${it.f}" placeholder="${esc(it.ph)}">${esc(state[it.f]||'')}</textarea><div class="thflag ${isTh(state[it.f])?'show':''}" data-thflag="${it.f}">🇹🇭 พบภาษาไทย — จะถูกแปลเป็นอังกฤษด้วย LLM ในระบบจริง</div></div>`;
   if (it.t === 'audioNote') { const m = MOD[state.model];
     return `<div class="notice ${m.audio===true?'':'warn'}">${m.audio===true?`✅ ${m.name} รองรับการสร้างเสียง — บทพูด ดนตรี และ SFX จะถูกใส่ใน prompt`:m.audio==='partial'?`⚠️ ${m.name}: การสร้างเสียงขึ้นกับเวอร์ชันโมเดล`:`🔇 ${m.name} ไม่สร้างเสียง — ข้อมูลส่วนนี้ถูกเก็บใน spec แต่ไม่ใส่ใน prompt (เปลี่ยนเป็น Veo 3 / Sora 2 เพื่อใช้เสียง)`}</div>`; }
-  if (it.t === 'shots') return `<div class="group" style="--c:${s.c}"><div class="ghead"><span class="gtitle">🗂️ Multi-shot Storyboard</span><span class="gmeta">${state.shots.length} ช็อต · รวม ${shotSum()}s</span><span class="sp"></span><button class="btn sm" data-act="addShot">➕ เพิ่มช็อต</button></div>
+  if (it.t === 'shots') return `<div class="group" data-sc="${s.c}"><div class="ghead"><span class="gtitle">🗂️ Multi-shot Storyboard</span><span class="gmeta">${state.shots.length} ช็อต · รวม ${shotSum()}s</span><span class="sp"></span><button class="btn sm" data-act="addShot">➕ เพิ่มช็อต</button></div>
      ${state.shots.length?`<div class="rowlist">${state.shots.map((x,i)=>`<div class="row"><input type="number" min="1" max="20" value="${x.d||2}" data-shot="${i}" data-k="d" title="วินาที">${optSel('shot',x.size,`data-shot="${i}" data-k="size"`)}${optSel('movement',x.mv,`data-shot="${i}" data-k="mv"`)}<input value="${esc(x.desc||'')}" placeholder="Shot ${i+1}: เกิดอะไรขึ้น" data-shot="${i}" data-k="desc"><button class="xbtn" data-delshot="${i}">✕</button></div>`).join('')}</div>`:'<span class="tag">ยังไม่มีช็อต — ไม่จำเป็นสำหรับคลิปช็อตเดียว เพิ่มเมื่อต้องการเล่าเรื่องหลายช็อตในคลิปเดียว</span>'}</div>`;
-  if (it.t === 'dialogue') return `<div class="group" style="--c:${s.c}"><div class="ghead"><span class="gtitle">💬 บทพูด (Dialogue)</span><span class="sp"></span><button class="btn sm" data-act="addDlg">➕ เพิ่มบทพูด</button></div>
+  if (it.t === 'dialogue') return `<div class="group" data-sc="${s.c}"><div class="ghead"><span class="gtitle">💬 บทพูด (Dialogue)</span><span class="sp"></span><button class="btn sm" data-act="addDlg">➕ เพิ่มบทพูด</button></div>
      ${state.dialogue.length?`<div class="rowlist dlg">${state.dialogue.map((d,i)=>`<div class="row"><input value="${esc(d.sp||'')}" placeholder="ผู้พูด" data-dlg="${i}" data-k="sp"><input value="${esc(d.line||'')}" placeholder="ข้อความที่พูด" data-dlg="${i}" data-k="line"><select data-dlg="${i}" data-k="tone">${['','softly','excitedly','whispering','shouting','sadly','confidently','sarcastically'].map(t=>`<option ${t===d.tone?'selected':''} value="${t}">${t||'— น้ำเสียง —'}</option>`).join('')}</select><label class="chk"><input type="checkbox" ${d.thai?'checked':''} data-dlg="${i}" data-k="thai">พูดไทย</label><button class="xbtn" data-deldlg="${i}">✕</button></div>`).join('')}</div>`:'<span class="tag">เพิ่มบทพูด เช่น ผู้พูด "The chef" · "Taste this!" · excitedly — ติ๊ก "พูดไทย" เพื่อให้ตัวละครพูดภาษาไทยโดยไม่แปล</span>'}</div>`;
-  if (it.t === 'consistency') return `<div class="group" style="--c:${s.c}"><div class="ghead"><span class="gtitle">🧬 ความต่อเนื่อง (Consistency) & Seed</span></div>
+  if (it.t === 'consistency') return `<div class="group" data-sc="${s.c}"><div class="ghead"><span class="gtitle">🧬 ความต่อเนื่อง (Consistency) & Seed</span></div>
      <div class="grid2"><div><div class="slabel">ชื่อตัวละครที่ล็อกไว้ (Character sheet)</div><input data-field="charName" placeholder="เช่น Mali, the orange tabby cat" value="${esc(state.charName)}"></div>
      <div><div class="slabel">Seed (ถ้าโมเดลรองรับ)</div><input data-field="seed" placeholder="เช่น 42" value="${esc(state.seed)}"></div></div>
-     <div style="display:flex;gap:18px;margin-top:10px;flex-wrap:wrap"><label class="chk"><input type="checkbox" data-flag="charRef" ${state.charRef?'checked':''}> ใช้ภาพอ้างอิงตัวละคร (image reference)</label>
+     <div class="chkrow"><label class="chk"><input type="checkbox" data-flag="charRef" ${state.charRef?'checked':''}> ใช้ภาพอ้างอิงตัวละคร (image reference)</label>
      <label class="chk"><input type="checkbox" data-flag="autoNeg" ${state.autoNeg?'checked':''}> เพิ่ม negative อัตโนมัติตามสไตล์</label></div></div>`;
   return '';
 }
 function renderCenter() {
   const {bad} = evalConflicts();
-  const hero = `<div class="hero"><h2>⚡ Quick-start จากไอเดีย</h2><p>พิมพ์ไอเดียเป็นประโยคเดียว (ไทยหรืออังกฤษ) แล้วระบบจะเติมตัวเลือกให้อัตโนมัติ — ${aiRoute('parse') ? `ใช้ AI: <b>${esc(routeLabel(aiRoute('parse')))}</b> แปลงเป็น structured spec (เลือกเฉพาะ option id ที่มีจริง)` : 'ตอนนี้ใช้ keyword matcher แบบออฟไลน์ — <a href="#" data-aiact="open" class="lnk" style="margin:0">ตั้งค่า AI ⚙️</a> เพื่อให้ LLM วิเคราะห์ไอเดีย'}</p>
+  const hero = `<div class="hero"><h2>⚡ Quick-start จากไอเดีย</h2><p>พิมพ์ไอเดียเป็นประโยคเดียว (ไทยหรืออังกฤษ) แล้วระบบจะเติมตัวเลือกให้อัตโนมัติ — ${aiRoute('parse') ? `ใช้ AI: <b>${esc(routeLabel(aiRoute('parse')))}</b> แปลงเป็น structured spec (เลือกเฉพาะ option id ที่มีจริง)` : 'ตอนนี้ใช้ keyword matcher แบบออฟไลน์ — <a href="#" data-aiact="open" class="lnk m0">ตั้งค่า AI ⚙️</a> เพื่อให้ LLM วิเคราะห์ไอเดีย'}</p>
     <div class="qs"><input id="idea" placeholder="เช่น แมวส้มนั่งมองฝนตกริมหน้าต่างตอนกลางคืน โทนเย็น เหงาๆ กล้องดันเข้าช้าๆ" value="${esc(state.idea)}"><button class="btn pri" data-act="quick" ${ui.aiBusy && ui.aiBusy.parse ? 'disabled' : ''}>${ui.aiBusy && ui.aiBusy.parse ? '<span class="spin"></span> AI กำลังวิเคราะห์…' : quickLabel()}</button></div>${parseNote()}
     <div class="presets"><span class="lbl">หรือเริ่มจาก Preset:</span>${PRESETS.map(p=>`<button class="pchip ${state.preset===p.id?'on':''}" data-preset="${p.id}">${p.e} ${p.th}</button>`).join('')}</div></div>`;
   let body = '';
   if (ui.mode === 'wizard') {
     const s = STEPS[ui.step];
-    body = `<div class="stephead" style="--c:${s.c}"><div><h1><span class="dot"></span>${s.e} ${s.th}</h1><p>${s.d}</p></div><span class="stepbadge">ขั้นที่ ${ui.step+1} / ${STEPS.length}</span></div>`
+    body = `<div class="stephead" data-sc="${s.c}"><div><h1><span class="dot"></span>${s.e} ${s.th}</h1><p>${s.d}</p></div><span class="stepbadge">ขั้นที่ ${ui.step+1} / ${STEPS.length}</span></div>`
       + s.items.map(it => itemHTML(it, s, bad)).join('')
-      + `<div class="wiznav"><button class="btn" data-act="prev" ${ui.step===0?'disabled style="opacity:.4"':''}>← ก่อนหน้า</button><button class="btn pri" data-act="next">${ui.step===STEPS.length-1?'✅ เสร็จสิ้น — คัดลอก Prompt':'ถัดไป: '+STEPS[ui.step+1].e+' '+STEPS[ui.step+1].th+' →'}</button></div>`;
+      + `<div class="wiznav"><button class="btn" data-act="prev" ${ui.step===0?'disabled':''}>← ก่อนหน้า</button><button class="btn pri" data-act="next">${ui.step===STEPS.length-1?'✅ เสร็จสิ้น — คัดลอก Prompt':'ถัดไป: '+STEPS[ui.step+1].e+' '+STEPS[ui.step+1].th+' →'}</button></div>`;
   } else {
     body = `<input class="search" id="search" placeholder="🔍 ค้นหาตัวเลือก เช่น dolly, นีออน, anime…" value="${esc(ui.search)}">` + STEPS.map(s => {
       const inner = s.items.map(it => itemHTML(it, s, bad)).join('');
-      return inner ? `<div class="adv-step"><div class="stephead" style="--c:${s.c}"><div><h1 style="font-size:18px"><span class="dot"></span>${s.e} ${s.th}</h1><p>${s.d}</p></div></div>${inner}</div>` : '';
+      return inner ? `<div class="adv-step"><div class="stephead" data-sc="${s.c}"><div><h1 class="sm"><span class="dot"></span>${s.e} ${s.th}</h1><p>${s.d}</p></div></div>${inner}</div>` : '';
     }).join('');
   }
   const c = $('#center'); const sc = c.scrollTop;
@@ -108,7 +125,7 @@ function markedToHTML(s) {
   // 1) highlight Thai runs first (markers contain only ASCII group ids, so they are never matched)
   let h = esc(s).replace(/[\u0E00-\u0E7F][\u0E00-\u0E7F\s\d.,!?]*/g, m => `<span class="thw" title="ต้องแปลเป็นอังกฤษ">${m}</span>`);
   // 2) then convert group markers to coloured spans
-  return h.replace(/\u0001([^\u0002]*)\u0002/g, (m, g) => `<span class="pseg" style="--c:${(G2S[g] || STEPS[0]).c}" title="${esc((GROUPS[g] || {}).th || g)}">`).replace(/\u0003/g, '</span>');
+  return h.replace(/\u0001([^\u0002]*)\u0002/g, (m, g) => `<span class="pseg" data-sc="${(G2S[g] || STEPS[0]).c}" title="${esc((GROUPS[g] || {}).th || g)}">`).replace(/\u0003/g, '</span>');
 }
 function renderModels() {
   $('#models').innerHTML = MODELS.map(m => `<button class="model ${state.model===m.id?'on':''}" data-model="${m.id}"><b>${m.name}</b><span>${m.v}</span></button>`).join('');
@@ -138,14 +155,14 @@ function updatePreview() {
   const col = sc.s >= 80 ? 'var(--ok)' : sc.s >= 50 ? 'var(--warn)' : 'var(--err)';
   ring.style.setProperty('--col', col);
   $('#scoreNum').innerHTML = `${sc.s}<small>/100</small>`;
-  $('#scoreLabel').innerHTML = `ความครบถ้วน: <b style="color:${col}">${sc.s>=80?'ดีมาก 🎉':sc.s>=50?'พอใช้ — เติมอีกนิด':'ยังขาดหลายส่วน'}</b>`;
-  $('#missing').innerHTML = sc.miss.length ? sc.miss.map(x => `<button class="miss" data-goto="${x.go}">➕ ${x.th} <span style="color:var(--tx3)">+${x.w}</span></button>`).join('') : '<span style="font-size:12px;color:var(--ok)">✓ ครบทุกมิติสำคัญแล้ว</span>';
+  $('#scoreLabel').innerHTML = `ความครบถ้วน: <b data-fg="${col}">${sc.s>=80?'ดีมาก 🎉':sc.s>=50?'พอใช้ — เติมอีกนิด':'ยังขาดหลายส่วน'}</b>`;
+  $('#missing').innerHTML = sc.miss.length ? sc.miss.map(x => `<button class="miss" data-goto="${x.go}">➕ ${x.th} <span class="muted">+${x.w}</span></button>`).join('') : '<span class="okline">✓ ครบทุกมิติสำคัญแล้ว</span>';
   const icon = {error:'⛔', warn:'⚠️', info:'ℹ️'};
-  $('#conflicts').innerHTML = conf.list.length ? conf.list.map((c, i) => `<div class="cf ${c.lv}"><span>${icon[c.lv]}</span><span class="msg">${esc(c.msg)}</span>${c.fix?`<button class="fix" data-fix="${i}">🔧 ${esc(c.fix.label)}</button>`:''}</div>`).join('') : '<div class="cf info" style="background:#4ade8010;border-color:#4ade8033"><span>✅</span><span class="msg">ไม่พบความขัดแย้ง</span></div>';
+  $('#conflicts').innerHTML = conf.list.length ? conf.list.map((c, i) => `<div class="cf ${c.lv}"><span>${icon[c.lv]}</span><span class="msg">${esc(c.msg)}</span>${c.fix?`<button class="fix" data-fix="${i}">🔧 ${esc(c.fix.label)}</button>`:''}</div>`).join('') : '<div class="cf info ok"><span>✅</span><span class="msg">ไม่พบความขัดแย้ง</span></div>';
   const ne = conf.list.filter(c => c.lv === 'error').length, nw = conf.list.filter(c => c.lv === 'warn').length;
-  $('#cfCount').innerHTML = `<span style="color:var(--err)">${ne} error</span> · <span style="color:var(--warn)">${nw} warn</span>`;
+  $('#cfCount').innerHTML = `<span class="c-err">${ne} error</span> · <span class="c-warn">${nw} warn</span>`;
   ui._conf = conf;
-  $('#legend').innerHTML = STEPS.map(s => `<span style="--c:${s.c}"><i></i>${s.th.split(' ')[0]}</span>`).join('') + '<span><i style="background:#fbbf24"></i>ต้องแปล</span>';
+  $('#legend').innerHTML = STEPS.map(s => `<span data-sc="${s.c}"><i></i>${s.th.split(' ')[0]}</span>`).join('') + '<span><i class="tr"></i>ต้องแปล</span>';
   persist();
 }
 function renderAll() { renderNav(); renderCenter(); renderModels(); updatePreview(); }
@@ -234,7 +251,7 @@ function showVariations() {
   lastVars = makeVariations(3);
   openModal(`<h2>🎲 A/B Variations<span class="sp"></span><button class="btn sm" data-act="reroll">🔁 สุ่มใหม่</button>&nbsp;<button class="btn sm" data-act="close">✕</button></h2>
    <div class="sub">สลับ 2 มิติแบบสุ่ม (มุมกล้อง, การเคลื่อนกล้อง, แสง, โทนสี, เลนส์, ขนาดภาพ, เวลา, อารมณ์) — กลุ่มที่ 🔒 ล็อกไว้จะไม่ถูกเปลี่ยน · ล็อกอยู่: ${state.locks.length ? state.locks.map(g => GROUPS[g].th).join(', ') : 'ไม่มี'} · ระบบจริงมีโหมด LLM สร้าง variation เชิงสร้างสรรค์ด้วย</div>
-   ${lastVars.map((v, i) => `<div class="var"><div class="vh"><b>${'ABC'[i]}</b>${v.diffs.map(d => `<span class="diff">${esc(d)}</span>`).join('')}<span style="flex:1"></span><button class="btn sm" data-copyvar="${i}">📋 Copy</button><button class="btn sm pri" data-usevar="${i}">ใช้แบบนี้</button></div><pre>${esc(v.r.prompt)}</pre></div>`).join('')}`);
+   ${lastVars.map((v, i) => `<div class="var"><div class="vh"><b>${'ABC'[i]}</b>${v.diffs.map(d => `<span class="diff">${esc(d)}</span>`).join('')}<span class="sp"></span><button class="btn sm" data-copyvar="${i}">📋 Copy</button><button class="btn sm pri" data-usevar="${i}">ใช้แบบนี้</button></div><pre>${esc(v.r.prompt)}</pre></div>`).join('')}`);
 }
 // ---- History / versioning (localStorage)
 const H_KEY = 'vpb_history';
@@ -437,8 +454,8 @@ async function runEnhance() {
     showEnhanceResult();
   } catch(e) {
     openModal(`<h2>✨ AI Enhance<span class="sp"></span><button class="btn sm" data-act="close">✕</button></h2><div class="testres err">❌ ${esc(errMsg(e))}</div>
-      <div class="sub" style="margin-top:10px">prompt เดิมยังใช้งานได้ตามปกติ · ตรวจ API key / โมเดล ใน ⚙️ ตั้งค่า AI${e.code ? ` · code: <code>${esc(e.code)}</code>` : ''}</div>
-      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px"><button class="btn" data-aiact="open">⚙️ ตั้งค่า AI</button><button class="btn pri" data-aiact="enhance">🔁 ลองใหม่</button></div>`, 'wide');
+      <div class="sub mt10">prompt เดิมยังใช้งานได้ตามปกติ · ตรวจ API key / โมเดล ใน ⚙️ ตั้งค่า AI${e.code ? ` · code: <code>${esc(e.code)}</code>` : ''}</div>
+      <div class="mactions"><button class="btn" data-aiact="open">⚙️ ตั้งค่า AI</button><button class="btn pri" data-aiact="enhance">🔁 ลองใหม่</button></div>`, 'wide');
   } finally { setBusy('enhance', false); }
 }
 function showEnhanceResult() {
@@ -448,13 +465,13 @@ function showEnhanceResult() {
    ${x.warns.length ? `<div class="notice warn">⚠️ ${esc(x.warns.join(' · '))}</div>` : ''}
    <div class="enhgrid"><div><div class="slabel">ก่อน (compile จากตัวเลือก) · ${x.source.length} ตัวอักษร</div><pre class="prompt">${esc(x.source)}</pre></div>
    <div><div class="slabel">หลัง (AI Enhanced) · ${x.prompt.length} ตัวอักษร</div><pre class="prompt enh">${esc(x.prompt)}</pre></div></div>
-   ${x.negative ? `<div class="slabel" style="margin-top:10px">Negative ที่ปรับแล้ว</div><pre class="prompt neg">${esc(x.negative)}</pre>` : ''}
-   <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px"><button class="btn" data-aiact="enhance">🔁 Enhance อีกครั้ง</button><button class="btn" data-aiact="copyEnh">📋 Copy</button><button class="btn pri" data-aiact="applyEnh">✅ ใช้ prompt นี้</button></div>`, 'wide');
+   ${x.negative ? `<div class="slabel mt10">Negative ที่ปรับแล้ว</div><pre class="prompt neg">${esc(x.negative)}</pre>` : ''}
+   <div class="mactions"><button class="btn" data-aiact="enhance">🔁 Enhance อีกครั้ง</button><button class="btn" data-aiact="copyEnh">📋 Copy</button><button class="btn pri" data-aiact="applyEnh">✅ ใช้ prompt นี้</button></div>`, 'wide');
 }
 function showEnhanceOffline() {
   openModal(`<h2>✨ AI Enhance (ยังไม่ได้เชื่อมต่อ AI)<span class="sp"></span><button class="btn sm" data-act="close">✕</button></h2>
    <div class="sub">${OFFLINE ? '📴 โหมดออฟไลน์ (ไม่ได้เชื่อมต่อ server) — ฟีเจอร์ AI ใช้ไม่ได้' : 'ยังไม่ได้เลือกผู้ให้บริการ AI สำหรับงาน Enhance — ไปที่ <b>⚙️ ตั้งค่า AI</b> เพื่อใส่ API key (OpenAI / Gemini / Claude / Grok / OpenRouter / Ollama / Custom) หรือให้ผู้ดูแลตั้ง key ของ server ใน .env'}</div>
-   <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button class="btn" data-act="close">ปิด</button>${OFFLINE ? '' : '<button class="btn pri" data-aiact="open">⚙️ ตั้งค่า AI</button>'}</div>`);
+   <div class="mactions"><button class="btn" data-act="close">ปิด</button>${OFFLINE ? '' : '<button class="btn pri" data-aiact="open">⚙️ ตั้งค่า AI</button>'}</div>`);
 }
 
 /* ---- Busy state + header chip ---- */
@@ -510,8 +527,8 @@ function plistHTML() {
   return AIS.providers.map(p => {
     const t = ui.aiTest[p.id], ready = draftReady(p.id);
     const dot = t && !t.busy ? (t.ok ? 'ok' : 'err') : ready ? 'ready' : '';
-    return `<button class="pv ${p.id === ui.aiTab ? 'on' : ''}" data-aitab="${p.id}"><span class="pe">${PROV_E[p.id] || ''}</span><span class="pn">${esc(p.name)}${s.defaultProvider === p.id ? '<i class="def">★ ค่าเริ่มต้น</i>' : ''}${p.hasServerKey ? '<i class="def" style="color:var(--ok)">🔑 key ของ server</i>' : ''}</span><span class="pdot ${dot}"></span></button>`;
-  }).join('') + '<div class="tag" style="margin-top:6px;line-height:1.6">🟡 ตั้งค่าแล้ว · 🟢 ทดสอบผ่าน · 🔴 ทดสอบไม่ผ่าน</div>';
+    return `<button class="pv ${p.id === ui.aiTab ? 'on' : ''}" data-aitab="${p.id}"><span class="pe">${PROV_E[p.id] || ''}</span><span class="pn">${esc(p.name)}${s.defaultProvider === p.id ? '<i class="def">★ ค่าเริ่มต้น</i>' : ''}${p.hasServerKey ? '<i class="def srv">🔑 key ของ server</i>' : ''}</span><span class="pdot ${dot}"></span></button>`;
+  }).join('') + '<div class="tag mt6 lh16">🟡 ตั้งค่าแล้ว · 🟢 ทดสอบผ่าน · 🔴 ทดสอบไม่ผ่าน</div>';
 }
 async function openSettings() {
   if (OFFLINE) { toast('📴 โหมดออฟไลน์ — ตั้งค่า AI ได้เมื่อเชื่อมต่อ server'); return; }
@@ -523,12 +540,12 @@ function renderSettings() {
   const s = ui.aiDraft, pid = ui.aiTab, P = AIS.providers.find(p => p.id === pid), c = s.providers[pid], pol = AIS.policy;
   const keyState = c.apiKey === null ? '🗑️ จะลบ key ส่วนตัวเมื่อกดบันทึก' : c.apiKey ? '✏️ key ใหม่ (จะเข้ารหัสเมื่อบันทึก)' : P.hasUserKey ? `🔒 บันทึกแล้ว (เข้ารหัสที่ server): <code>${esc(P.userKeyHint)}</code>` : P.hasServerKey ? '🔑 ใช้ key ของ server (จาก .env)' : P.keyRequired ? 'ยังไม่มี key' : 'ไม่ต้องใช้ key';
   const form = `
-   <div class="pfh"><span class="pe big">${PROV_E[pid] || ''}</span><div><b style="font-size:15px">${esc(P.name)}</b><div class="tag" style="line-height:1.5;margin-top:3px">${esc(P.note)}</div></div></div>
+   <div class="pfh"><span class="pe big">${PROV_E[pid] || ''}</span><div><b class="pname">${esc(P.name)}</b><div class="tag pfnote">${esc(P.note)}</div></div></div>
    <label class="fl">API key ${P.keyRequired ? '<span class="req">จำเป็น</span>' : '<span class="tag">(ไม่บังคับ)</span>'}${P.keyUrl ? `<a href="${P.keyUrl}" target="_blank" rel="noopener" class="lnk">ขอ API key ↗</a>` : ''}</label>
    ${pol.allowUserKeys ? `<div class="keyrow"><input type="password" autocomplete="off" spellcheck="false" data-ai="providers.${pid}.apiKey" id="aikey-${pid}" value="${esc(c.apiKey || '')}" placeholder="${P.hasUserKey ? 'เว้นว่าง = ใช้ key เดิม' : 'วาง API key ที่นี่'}"><button class="btn sm" data-aieye="${pid}" type="button">👁 แสดง</button>${P.hasUserKey ? `<button class="btn sm" data-aiact="delKey" type="button">🗑️</button>` : ''}</div>` : '<div class="tag">ผู้ดูแลระบบปิดการใช้ key ส่วนตัว (ALLOW_USER_KEYS=false)</div>'}
-   <div class="tag" style="margin-top:6px" id="aikeystate">${keyState}</div>
+   <div class="tag mt6" id="aikeystate">${keyState}</div>
    <label class="fl">Base URL ${pol.allowUserBaseUrl ? `<button class="ib" data-aiact="resetUrl" type="button">↺ ค่าเริ่มต้น</button>` : '<span class="tag">(กำหนดโดย server)</span>'}</label>
-   <input data-ai="providers.${pid}.baseUrl" id="aiurl-${pid}" value="${esc(c.baseUrl)}" spellcheck="false" ${pol.allowUserBaseUrl ? '' : 'readonly style="opacity:.6"'}>
+   <input data-ai="providers.${pid}.baseUrl" id="aiurl-${pid}" value="${esc(c.baseUrl)}" spellcheck="false" ${pol.allowUserBaseUrl ? '' : 'readonly class="ro"'}>
    <label class="fl">โมเดล <span class="tag">(เลือกจากรายการหรือพิมพ์เอง)</span></label>
    <input list="dl-${pid}" data-ai="providers.${pid}.model" id="aimodel-${pid}" value="${esc(c.model)}" placeholder="พิมพ์ชื่อโมเดล" spellcheck="false"><datalist id="dl-${pid}">${P.models.map(m => `<option value="${m}">`).join('')}</datalist>
    <div class="mchips">${P.models.map(m => `<button class="mchip ${m === c.model ? 'on' : ''}" data-aimodel="${m}" type="button">${m}</button>`).join('') || '<span class="tag">พิมพ์ชื่อโมเดลของเซิร์ฟเวอร์คุณ</span>'}</div>
@@ -538,15 +555,15 @@ function renderSettings() {
    <div id="aitest-${pid}">${testResHTML(ui.aiTest[pid])}</div>`;
   const side = `
    <div class="sbox"><h4>🧭 กำหนด AI ต่องาน (Per-task routing)</h4>
-    <label class="fl" style="margin-top:0">ผู้ให้บริการค่าเริ่มต้น</label><select data-ai="defaultProvider">${provOpts(s.defaultProvider, false)}</select>
+    <label class="fl mt0">ผู้ให้บริการค่าเริ่มต้น</label><select data-ai="defaultProvider">${provOpts(s.defaultProvider, false)}</select>
     ${Object.keys(AI_TASKS).map(t => `<div class="taskrow"><div class="tname">${AI_TASKS[t].th}</div><select data-ai="tasks.${t}.provider">${provOpts(s.tasks[t].provider, true)}</select><input data-ai="tasks.${t}.model" value="${esc(s.tasks[t].model)}" placeholder="โมเดลเฉพาะงานนี้ (ว่าง = ของผู้ให้บริการ)" spellcheck="false"><div class="tag" id="route-${t}">→ ${esc(routeLabel(draftRoute(t)))}</div></div>`).join('')}
-    <label class="chk" style="margin-top:10px"><input type="checkbox" data-ai="autoTranslate" ${s.autoTranslate ? 'checked' : ''}> แปลข้อความไทยอัตโนมัติเมื่อหยุดพิมพ์ (cache ที่ server)</label>
+    <label class="chk mt10"><input type="checkbox" data-ai="autoTranslate" ${s.autoTranslate ? 'checked' : ''}> แปลข้อความไทยอัตโนมัติเมื่อหยุดพิมพ์ (cache ที่ server)</label>
    </div>
-   <div class="sbox"><h4>📊 โควตาวันนี้</h4><div class="tag" style="line-height:1.6">ใช้ไป <b>${AIS.quota.used}</b> / ${AIS.quota.limit} ครั้ง (รีเซ็ตทุกวัน · กำหนดโดย LLM_DAILY_QUOTA) · cache hit ของคำแปลไม่นับโควตา</div></div>`;
+   <div class="sbox"><h4>📊 โควตาวันนี้</h4><div class="tag lh16">ใช้ไป <b>${AIS.quota.used}</b> / ${AIS.quota.limit} ครั้ง (รีเซ็ตทุกวัน · กำหนดโดย LLM_DAILY_QUOTA) · cache hit ของคำแปลไม่นับโควตา</div></div>`;
   const mb = $('#mbox'); const st = mb.scrollTop;
   openModal(`<h2>⚙️ ตั้งค่า AI<span class="sp"></span><button class="btn sm" data-act="close">✕</button></h2>
    <div class="sub">เลือกผู้ให้บริการ AI สำหรับ ✨ Enhance, 🌐 แปลไทย→อังกฤษ และ ⚡ Quick-start — ทุกคำขอวิ่งผ่าน backend (system prompt อยู่ที่ server) · ถ้าไม่ได้ตั้งค่า ระบบจะทำงานแบบออฟไลน์</div>
-   <div class="notice" style="margin-bottom:0;border-color:#4ade8055;background:#4ade800f">🔐 API key ที่ใส่ที่นี่จะถูกส่งไปเก็บที่ server แบบ<b>เข้ารหัส AES-256-GCM</b> และ<b>ไม่ถูกส่งกลับมาที่เบราว์เซอร์อีก</b> (แสดงแค่ตัวย่อ) · ถ้าผู้ดูแลตั้ง key ใน .env ของ server ไว้แล้ว ไม่ต้องใส่ key เอง</div>
+   <div class="notice safe">🔐 API key ที่ใส่ที่นี่จะถูกส่งไปเก็บที่ server แบบ<b>เข้ารหัส AES-256-GCM</b> และ<b>ไม่ถูกส่งกลับมาที่เบราว์เซอร์อีก</b> (แสดงแค่ตัวย่อ) · ถ้าผู้ดูแลตั้ง key ใน .env ของ server ไว้แล้ว ไม่ต้องใส่ key เอง</div>
    <div class="setgrid"><div class="plist" id="aiPlist">${plistHTML()}</div><div class="pform">${form}</div><div class="pside">${side}</div></div>
    <div class="mfoot"><button class="btn" data-aiact="clearKeys" type="button">🗑️ ล้าง API keys ทั้งหมด</button><button class="btn" data-aiact="resetAll" type="button">↺ รีเซ็ตการตั้งค่า</button><span class="sp"></span><button class="btn" data-act="close">ยกเลิก</button><button class="btn pri" data-aiact="save" type="button">💾 บันทึก</button></div>`, 'wide');
   mb.scrollTop = st;
@@ -702,7 +719,7 @@ async function showHistory() {
   ui.versions = versions;
   openModal(`<h2>🕘 ประวัติเวอร์ชัน — ${esc(PROJ.name)}<span class="sp"></span><button class="btn sm" data-act="close">✕</button></h2>
    <div class="sub">เก็บในตาราง prompt_versions (server compile ใหม่ทุกครั้งจาก spec จึงเชื่อถือได้) · เรียกคืนแล้วจะเขียนทับตัวเลือกปัจจุบันของโปรเจกต์</div>
-   ${versions.length ? versions.map((v, i) => `<div class="hist"><div class="hi"><b>v${v.no} · ${esc(v.title || '')}${v.enhanced ? ' <span class="badge">✨ AI</span>' : ''}</b><span>${fmtDate(v.createdAt)} · ${(MOD[v.model] || {}).name || v.model} · คะแนน ${v.score ?? '-'} · ${v.prompt.length} ตัวอักษร</span></div><button class="btn sm" data-vcopy="${i}">📋</button><button class="btn sm pri" data-vrestore="${i}">↩︎ เรียกคืน</button></div>`).join('') : '<div class="empty" style="padding:20px;text-align:center">ยังไม่มีเวอร์ชัน — กด 💾 บันทึกเวอร์ชัน</div>'}`);
+   ${versions.length ? versions.map((v, i) => `<div class="hist"><div class="hi"><b>v${v.no} · ${esc(v.title || '')}${v.enhanced ? ' <span class="badge">✨ AI</span>' : ''}</b><span>${fmtDate(v.createdAt)} · ${(MOD[v.model] || {}).name || v.model} · คะแนน ${v.score ?? '-'} · ${v.prompt.length} ตัวอักษร</span></div><button class="btn sm" data-vcopy="${i}">📋</button><button class="btn sm pri" data-vrestore="${i}">↩︎ เรียกคืน</button></div>`).join('') : '<div class="empty vempty">ยังไม่มีเวอร์ชัน — กด 💾 บันทึกเวอร์ชัน</div>'}`);
 }
 async function showActivity() {
   let history; try { ({history} = await api.get('/history?limit=40')); } catch(e) { toast('❌ ' + errMsg(e)); return; }

@@ -1,6 +1,6 @@
 import pg from 'pg';
 import { loadConfig, type Config } from '../src/config.js';
-import { buildApp } from '../src/app.js';
+import { buildApp, type AppDeps } from '../src/app.js';
 import { createKV } from '../src/lib/kv.js';
 // @ts-ignore — plain JS stub shared with the docker "stub" profile
 import { respond } from '../../../tools/stub-llm/stub.mjs';
@@ -29,7 +29,7 @@ export async function resetDb() {
   await c.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;'); await c.end();
 }
 
-export async function makeApp(over: Partial<Config> = {}, calls: Call[] = []) {
+export async function makeApp(over: Partial<Config> = {}, calls: Call[] = [], deps: Partial<AppDeps> = {}) {
   const cfg = loadConfig({
     NODE_ENV: 'test', DATABASE_URL: TEST_DB, REDIS_URL: process.env.TEST_REDIS_URL || '', LOG_LEVEL: 'silent',
     JWT_SECRET: 'test-secret-test-secret-test-secret-1234', ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'),
@@ -38,7 +38,7 @@ export async function makeApp(over: Partial<Config> = {}, calls: Call[] = []) {
   } as any, over);
   const kv = createKV(cfg.REDIS_URL);
   if (kv.redis) await kv.redis.flushdb();   // tests use a dedicated Redis DB index (e.g. redis://localhost:6379/15)
-  const app = await buildApp(cfg, { fetch: makeFakeFetch(calls), logger: false, kv, lookup: fakeLookup });
+  const app = await buildApp(cfg, { fetch: makeFakeFetch(calls), logger: false, kv, lookup: fakeLookup, ...deps });
   app.addHook('onClose', async () => { await kv.close(); });
   return { app, cfg, calls };
 }

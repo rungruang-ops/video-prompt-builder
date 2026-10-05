@@ -3,6 +3,10 @@ import { randomBytes } from 'node:crypto';
 import { loadConfig, durationToSec } from '../../src/config.js';
 import { isPrivateIp, assertSafeBaseUrl, redactSecrets } from '../../src/lib/netguard.js';
 import { callProvider } from '../../src/llm/client.js';
+import { redisWithoutPassword } from '../../src/app.js';
+import { readFileSync } from 'node:fs';
+// @ts-ignore — plain JS script (npm run env:init)
+import { fillSecrets } from '../../../../scripts/env-init.mjs';
 
 const strong = { JWT_SECRET: randomBytes(48).toString('base64'), ENCRYPTION_KEY: randomBytes(32).toString('base64') };
 const prodDb = 'postgres://app:S3cure-Random-Pw@db.example.net:5432/vpb';
@@ -18,6 +22,24 @@ describe('config hardening', () => {
     expect(() => loadConfig({ NODE_ENV: 'production', ...strong, DATABASE_URL: prodDb, CUSTOM_LLM_BASE_URL: 'http://stub-llm:9999/v1' })).toThrow(/stub LLM/);
     expect(() => loadConfig({ NODE_ENV: 'production', ...strong, DATABASE_URL: prodDb, CUSTOM_LLM_BASE_URL: 'http://stub-llm:9999/v1', ALLOW_STUB_LLM: 'true' })).not.toThrow();
     expect(() => loadConfig({ ...strong, ENCRYPTION_KEY: 'CHANGE-ME' })).toThrow(/openssl rand -base64 32/);
+    // docker compose builds REDIS_URL from REDIS_PASSWORD: an un-generated placeholder must not reach production
+    expect(() => loadConfig({ NODE_ENV: 'production', ...strong, DATABASE_URL: prodDb, REDIS_URL: 'redis://:CHANGE-ME@redis:6379' })).toThrow(/REDIS_URL/);
+    expect(() => loadConfig({ NODE_ENV: 'production', ...strong, DATABASE_URL: prodDb, REDIS_URL: 'redis://:Zk3_q-9xYpR2@redis:6379' })).not.toThrow();
+    expect(() => loadConfig({ NODE_ENV: 'production', ...strong, DATABASE_URL: prodDb, REDIS_URL: 'redis://localhost:6379' })).not.toThrow();
+  });
+  it('env:init fills every CHANGE-ME in .env.example, including a URL-safe REDIS_PASSWORD', () => {
+    const out: string = fillSecrets(readFileSync(new URL('../../../../.env.example', import.meta.url), 'utf8'));
+    expect(out).not.toMatch(/=CHANGE-ME\s*$/m);
+    for (const k of ['POSTGRES_PASSWORD', 'REDIS_PASSWORD']) expect(out).toMatch(new RegExp(`^${k}=[A-Za-z0-9_-]{32}$`, 'm'));
+    const pw = out.match(/^REDIS_PASSWORD=(.*)$/m)![1];
+    expect(decodeURIComponent(new URL(`redis://:${pw}@redis:6379`).password)).toBe(pw);
+  });
+  it('flags Redis URLs without a password unless they are loopback', () => {
+    expect(redisWithoutPassword('redis://redis:6379')).toBe(true);
+    expect(redisWithoutPassword('redis://:pw@redis:6379')).toBe(false);
+    expect(redisWithoutPassword('rediss://default:pw@x.upstash.io:6379')).toBe(false);
+    expect(redisWithoutPassword('redis://localhost:6379/15')).toBe(false);
+    expect(redisWithoutPassword('redis://127.0.0.1:6379')).toBe(false);
   });
   it('parses TRUST_PROXY, DATABASE_SSL, ALLOW_USER_BASE_URL and JWT_EXPIRES_IN', () => {
     expect(loadConfig({ ...strong }).TRUST_PROXY).toBe(1);

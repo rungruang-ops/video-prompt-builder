@@ -304,3 +304,31 @@ body.authed #auth { display:none }
 @media (max-width:1500px){ header .logo small{display:none} .usermenu .uname{max-width:90px} }
 @media (max-width:1320px){ .savestat{display:none} .usermenu .uname{display:none} }
 @media (max-width:900px){ .auth{grid-template-columns:1fr} .authside h1{font-size:28px} }
+
+/* ---- strict CSP: no inline style="" attributes anywhere; these classes replace them ---- */
+.hnote{font-size:11px;color:var(--tx3)}
+.hcount{font-size:11px}
+.grow{flex:1;min-width:0}
+#charBar{width:0}
+.gmeta.dashed{border-style:dashed}
+.chkrow{display:flex;gap:18px;margin-top:10px;flex-wrap:wrap}
+.lnk.m0{margin:0}
+.wiznav .btn:disabled{opacity:.4}
+.stephead h1.sm{font-size:18px}
+.muted{color:var(--tx3)}
+.okline{font-size:12px;color:var(--ok)}
+.cf.info.ok{background:#4ade8010;border-color:#4ade8033}
+.c-err{color:var(--err)}
+.c-warn{color:var(--warn)}
+.legend span i.tr{background:#fbbf24}
+.mactions{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+.sub.mt10,.slabel.mt10,.chk.mt10{margin-top:10px}
+.tag.mt6{margin-top:6px}
+.tag.lh16{line-height:1.6}
+.fl.mt0{margin-top:0}
+.pv .def.srv{color:var(--ok)}
+.pname{font-size:15px}
+.tag.pfnote{line-height:1.5;margin-top:3px}
+input.ro{opacity:.6}
+.notice.safe{margin-bottom:0;border-color:#4ade8055;background:#4ade800f}
+.vempty{padding:20px;text-align:center}
