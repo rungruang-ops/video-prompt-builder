@@ -1,6 +1,7 @@
 /* Video Prompt Builder — web UI (ported from the single-file prototype; compiler/taxonomy come from @vpb/core). */
 import * as C from '@vpb/core';
 import { api } from './api.js';
+import { initAccount } from './account.js';
 const { GROUPS, STEPS, G2S, OPT, MODELS, MOD, blank, clone, esc, TH_RE, isTh, M, strip, capM, art, stripPrep, joinList, S, sel, has, any, ph, pm, buildParts, autoNeg, negList, audioLines, sentence, sceneSentence, openerSentence, styleSentence, lightSentence, lensSentence, shotsText, FORMATTERS, compile, NIGHT, allIds, dur, shotSum, RULES, thaiFields, evalConflicts, WEIGHTS, score, paramsObj, specJSON, thaiSummary, taxonomyForLLM, applyParsed, tr, withState, normalizeSpec, analyze } = C;
 const trCache = C.trCache;
 let PRESETS = C.PRESETS.map(p => ({...p, system: true}));
@@ -651,7 +652,7 @@ function renderSaveStatus() {
 function renderProjectBtn() { const b = $('#btnProjects'); if (b) b.innerHTML = `📁 <b>${esc(OFFLINE ? 'ออฟไลน์' : (PROJ.name || 'โปรเจกต์'))}</b> ▾`; }
 function renderUser() {
   const el = $('#userMenu'); if (!el) return;
-  el.innerHTML = USER ? `<span class="uname" title="${esc(USER.email)}">👤 ${esc(USER.displayName || USER.email)}${USER.role === 'admin' ? ' <i>admin</i>' : ''}</span><button class="btn sm" id="btnLogout" title="ออกจากระบบ">⎋ ออก</button>`
+  el.innerHTML = USER ? `<button class="btn sm uname" id="btnAccount" title="บัญชีของฉัน — ${esc(USER.email)}">👤 ${esc(USER.displayName || USER.email)}${USER.role === 'admin' ? ' <i>admin</i>' : ''}</button><button class="btn sm" id="btnLogout" title="ออกจากระบบ (เครื่องนี้)">⎋ ออก</button>`
     : `<button class="btn sm" id="btnLogout">🔑 เข้าสู่ระบบ</button>`;
 }
 async function openProject(p) {
@@ -704,7 +705,7 @@ async function showHistory() {
 }
 async function showActivity() {
   let history; try { ({history} = await api.get('/history?limit=40')); } catch(e) { toast('❌ ' + errMsg(e)); return; }
-  const L = {'project.create':'📁 สร้างโปรเจกต์','project.delete':'🗑️ ลบโปรเจกต์','version.save':'💾 บันทึกเวอร์ชัน','ai.enhance':'✨ AI Enhance','ai.translate':'🌐 แปล','ai.parse':'⚡ Parse ไอเดีย','ai.test':'🔌 ทดสอบ AI','ai.llm':'🤖 LLM','ai.settings':'⚙️ ตั้งค่า AI','auth.login':'🔑 เข้าสู่ระบบ','auth.register':'👤 สมัครสมาชิก'};
+  const L = {'project.create':'📁 สร้างโปรเจกต์','project.delete':'🗑️ ลบโปรเจกต์','version.save':'💾 บันทึกเวอร์ชัน','ai.enhance':'✨ AI Enhance','ai.translate':'🌐 แปล','ai.parse':'⚡ Parse ไอเดีย','ai.test':'🔌 ทดสอบ AI','ai.llm':'🤖 LLM','ai.settings':'⚙️ ตั้งค่า AI','auth.login':'🔑 เข้าสู่ระบบ','auth.register':'👤 สมัครสมาชิก','auth.logout_all':'⎋ ออกจากระบบทุกอุปกรณ์','auth.password_change':'🔒 เปลี่ยนรหัสผ่าน'};
   openModal(`<h2>🧾 กิจกรรมล่าสุด<span class="sp"></span><button class="btn sm" data-act="close">✕</button></h2>
    <div class="sub">จากตาราง history (รวมการใช้ AI — provider, model, เวลา, สำเร็จ/ล้มเหลว)</div>
    <div class="plist2">${history.map(h => `<div class="prow"><div class="pi"><b>${L[h.kind] || esc(h.kind)}${h.project_name ? ' · ' + esc(h.project_name) : ''}</b><span>${fmtDate(h.created_at)}${h.detail.provider ? ` · ${esc(h.detail.provider)} / ${esc(h.detail.model)} · ${h.detail.ok ? `✅ ${h.detail.ms}ms` : `❌ ${esc(h.detail.code || '')}`}` : ''}${h.detail.no ? ` · v${h.detail.no}` : ''}</span></div></div>`).join('') || '<div class="empty">ยังไม่มีกิจกรรม</div>'}</div>`);
@@ -730,6 +731,7 @@ document.addEventListener('click', async e => {
   }
 });
 window.addEventListener('beforeunload', () => { if (PROJ.dirty && !OFFLINE && PROJ.id) { try { fetch(api.base + `/projects/${PROJ.id}`, {method: 'PATCH', credentials: 'include', keepalive: true, headers: {'content-type': 'application/json'}, body: JSON.stringify({spec: state})}); } catch(e) {} } });
+initAccount(() => ({ user: USER, esc, openModal, closeModal, toast, errMsg, flushSave }));
 window.addEventListener('vpb:unauthorized', () => { if (!OFFLINE) { toast('🔑 Session หมดอายุ — กรุณาเข้าสู่ระบบใหม่'); setTimeout(() => location.reload(), 1500); } });
 
 /** Entry point (called by main.js after authentication, or in offline mode). */

@@ -203,7 +203,9 @@ CI (`.github/workflows/ci.yml`) รันทั้งหมดนี้บน Gi
 | Method | Path | หมายเหตุ |
 |---|---|---|
 | GET | `/health`, `/health/live` | readiness (DB + Redis, 503 ถ้าล่ม) / liveness |
-| POST | `/auth/register`, `/auth/login`, `/auth/logout` | cookie httpOnly JWT |
+| POST | `/auth/register`, `/auth/login`, `/auth/logout` | cookie httpOnly JWT (`logout` = เครื่องนี้) |
+| POST | `/auth/logout-all` | ออกจากระบบทุกอุปกรณ์ (เพิกถอนทุก session ของผู้ใช้) |
+| POST | `/auth/password` | `{ currentPassword, newPassword }` — เปลี่ยนรหัสผ่าน, เพิกถอน session อื่นทั้งหมด, ออก cookie ใหม่ให้เครื่องนี้ |
 | GET | `/auth/me`, `/auth/session`, `/auth/config` | ผู้ใช้ปัจจุบัน + quota |
 | GET | `/taxonomy`, `/models`, `/presets` | ข้อมูลจาก `@vpb/core` + preset ระบบ/ของผู้ใช้ |
 | POST/DELETE | `/presets`, `/presets/:id` | preset ของผู้ใช้ |
@@ -222,6 +224,7 @@ CI (`.github/workflows/ci.yml`) รันทั้งหมดนี้บน Gi
 
 - รหัสผ่าน: scrypt (N=32768) + salt, เปรียบเทียบแบบ timing-safe; login ผิดใช้เวลาเท่ากับผู้ใช้ที่มีอยู่จริง; การสมัครคนแรก (= admin) ล็อกด้วย advisory lock กัน race
 - Session: JWT (HS256 เท่านั้น) ใน cookie `httpOnly` + `SameSite=Lax` (+ `Secure` เมื่อ `COOKIE_SECURE=true`) อายุตาม `JWT_EXPIRES_IN`; request ที่แก้ข้อมูลต้องเป็น `application/json` (ช่วยกัน CSRF แบบ form)
+- เพิกถอน session ได้ก่อนหมดอายุ: JWT มี claim `tv` = `users.token_version` ตอนออก token และทุก request ที่ต้อง login จะเทียบกับค่าในฐานข้อมูล — ค่าเพิ่มขึ้นเมื่อกด "ออกจากระบบทุกอุปกรณ์" หรือเปลี่ยนรหัสผ่าน → token เก่าทุกใบใช้ไม่ได้ทันที (token ที่ออกก่อนอัปเดตนี้ไม่มี `tv` จะนับเป็น 0 จึงยังใช้ได้จนกว่าจะมีการเพิกถอนครั้งแรก)
 - API key ของผู้ใช้: AES-256-GCM พร้อม AAD = `userId:provider` (ย้าย ciphertext ข้ามผู้ใช้ไม่ได้); ข้อความ error จาก provider ถูกลบส่วนที่ดูเหมือน key ก่อนส่งกลับ
 - SSRF: base URL ที่ผู้ใช้กำหนด (`ALLOW_USER_BASE_URL=admin|all`) ต้องผ่านการตรวจ DNS/IP (ห้าม loopback, private, link-local/metadata 169.254.169.254, CGNAT, ULA …), ห้ามมี user:pass, ไม่ follow redirect, ไม่ได้รับ key ของ server และผลแปลจาก endpoint ของผู้ใช้ไม่เข้า cache กลาง
 - Validation ทุก endpoint ด้วย zod, จำกัดขนาด body, rate limit ต่อผู้ใช้/IP (Redis/Upstash), quota LLM รายวัน; ทุก query เป็น parameterized SQL
@@ -307,7 +310,7 @@ node scripts/smoke.mjs http://localhost:3000
 
 ## 11. ข้อจำกัดที่ทราบ
 
-- ยังไม่มี: ยืนยันอีเมล, ลืมรหัสผ่าน/รีเซ็ต, OAuth, หน้า admin จัดการผู้ใช้, การหมุน `ENCRYPTION_KEY` อัตโนมัติ, การเพิกถอน session ก่อนหมดอายุ (logout ลบ cookie แต่ JWT ที่ถูกขโมยยังใช้ได้จนหมดอายุ — ลด `JWT_EXPIRES_IN` ได้)
+- ยังไม่มี: ยืนยันอีเมล, ลืมรหัสผ่าน/รีเซ็ต, OAuth, หน้า admin จัดการผู้ใช้, การหมุน `ENCRYPTION_KEY` อัตโนมัติ, การเพิกถอน session ทีละเครื่อง (`/auth/logout` ลบ cookie ของเครื่องนี้เท่านั้น — ถ้าสงสัยว่า token ถูกขโมยให้ใช้ "ออกจากระบบทุกอุปกรณ์")
 - SSRF guard ตรวจ DNS ก่อนเชื่อมต่อ — ยังมีความเสี่ยง DNS rebinding แคบ ๆ จึงตั้งค่าเริ่มต้น `ALLOW_USER_BASE_URL=off`
 - CSP ยังต้องใช้ `style-src 'unsafe-inline'` (UI ใช้ inline style attributes)
 - ชื่อโมเดลเริ่มต้นของแต่ละ provider (`apps/api/src/llm/providers.ts`) อ้างอิงข้อมูล ต.ค. 2026 — ควรตรวจกับเอกสาร provider และ override ด้วย `*_MODEL`
