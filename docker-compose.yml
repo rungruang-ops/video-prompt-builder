@@ -27,12 +27,13 @@ services:
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env (npm run env:init generates one)}
     # requirepass goes into a 0600 config file owned by the redis user instead of onto the command line (so it does not
-    # show up in `ps` on the host); the image entrypoint then drops privileges to the redis user as usual
+    # show up in `ps` on the host); the image entrypoint then drops privileges to the redis user as usual.
+    # rm -f first: on a container restart the old file (owned by redis, in sticky /tmp) cannot be reopened for writing.
     command:
       - sh
       - -c
       - >-
-        umask 077 && printf 'requirepass %s\n' "$$REDIS_PASSWORD" > /tmp/redis.conf && chown redis:redis /tmp/redis.conf &&
+        rm -f /tmp/redis.conf && umask 077 && printf 'requirepass %s\n' "$$REDIS_PASSWORD" > /tmp/redis.conf && chown redis:redis /tmp/redis.conf &&
         exec docker-entrypoint.sh redis-server /tmp/redis.conf --appendonly yes --maxmemory 256mb --maxmemory-policy volatile-lru
     volumes:
       - redisdata:/data

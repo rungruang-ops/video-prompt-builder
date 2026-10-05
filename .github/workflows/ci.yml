@@ -176,6 +176,12 @@ jobs:
           csp="$(curl -fsSI http://localhost:8080/)"; csp="$(grep -i '^content-security-policy:' <<< "$csp")"; echo "$csp"
           [[ "$csp" == *"style-src 'self';"* && "$csp" != *unsafe-inline* ]]
           node scripts/smoke.mjs http://localhost:8080
+      - name: Survives restarts (redis/api restart in place, then the whole stack)
+        run: |
+          docker compose restart redis api
+          docker compose --profile stub stop && docker compose --profile stub up -d --wait --wait-timeout 180
+          health="$(curl -fsS http://localhost:8080/api/v1/health)"; echo "$health"
+          [[ "$health" == *'"cache":{"kind":"redis","ok":true}'* ]]
       - if: failure()
         run: docker compose --profile stub logs --tail 200 || true
       - if: always()
