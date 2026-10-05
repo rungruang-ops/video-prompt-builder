@@ -235,7 +235,7 @@ CI (`.github/workflows/ci.yml`) รันทั้งหมดนี้บน Gi
 - API key ของผู้ใช้: AES-256-GCM พร้อม AAD = `userId:provider` (ย้าย ciphertext ข้ามผู้ใช้ไม่ได้); ข้อความ error จาก provider ถูกลบส่วนที่ดูเหมือน key ก่อนส่งกลับ
 - SSRF: base URL ที่ผู้ใช้กำหนด (`ALLOW_USER_BASE_URL=admin|all`) ต้องผ่านการตรวจ DNS/IP (ห้าม loopback, private, link-local/metadata 169.254.169.254, CGNAT, ULA …), ห้ามมี user:pass, ไม่ follow redirect, ไม่ได้รับ key ของ server และผลแปลจาก endpoint ของผู้ใช้ไม่เข้า cache กลาง
 - Validation ทุก endpoint ด้วย zod, จำกัดขนาด body, rate limit ต่อผู้ใช้/IP (Redis/Upstash), quota LLM รายวัน; ทุก query เป็น parameterized SQL
-- Security headers: helmet (API) + nginx / `vercel.json` (CSP `script-src 'self'`, `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`, COOP, HSTS บน Vercel); UI escape ข้อความของผู้ใช้/LLM ทุกจุด (มี e2e test ตรวจ XSS)
+- Security headers: helmet (API) + nginx / `vercel.json` (CSP เข้มงวด `script-src 'self'; style-src 'self'` — **ไม่มี `'unsafe-inline'`**: UI ไม่ใช้ inline style เลย สีแบบ dynamic ส่งผ่าน `data-*` แล้วตั้งด้วย CSSOM; `vite preview` ส่ง header ชุดเดียวกับ production ทำให้ e2e ตรวจว่าไม่มี CSP violation, `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`, COOP, HSTS บน Vercel); UI escape ข้อความของผู้ใช้/LLM ทุกจุด (มี e2e test ตรวจ XSS)
 - Production ปฏิเสธการสตาร์ทถ้า secret/รหัสผ่าน DB เป็น placeholder หรือชี้ไปที่ stub LLM; Postgres/Redis ใน compose ไม่เปิดพอร์ตออก host; container api รันเป็น user `node`
 - CI: `permissions: contents: read`, actions pin ด้วย commit SHA, `persist-credentials: false`, ไม่ใช้ `pull_request_target`, secret ของ CI สุ่มใหม่ทุก run, `npm audit --audit-level=high`
 - ดู [SECURITY.md](SECURITY.md) สำหรับการแจ้งช่องโหว่
@@ -319,7 +319,6 @@ node scripts/smoke.mjs http://localhost:3000
 
 - ยังไม่มี: ยืนยันอีเมล, ลืมรหัสผ่าน/รีเซ็ต, OAuth, การลบบัญชีผู้ใช้/โอนข้อมูล (หน้า admin ทำได้แค่ระงับ), การหมุน `ENCRYPTION_KEY` อัตโนมัติ, การเพิกถอน session ทีละเครื่อง (`/auth/logout` ลบ cookie ของเครื่องนี้เท่านั้น — ถ้าสงสัยว่า token ถูกขโมยให้ใช้ "ออกจากระบบทุกอุปกรณ์")
 - SSRF guard ตรวจ DNS ก่อนเชื่อมต่อ — ยังมีความเสี่ยง DNS rebinding แคบ ๆ จึงตั้งค่าเริ่มต้น `ALLOW_USER_BASE_URL=off`
-- CSP ยังต้องใช้ `style-src 'unsafe-inline'` (UI ใช้ inline style attributes)
 - ชื่อโมเดลเริ่มต้นของแต่ละ provider (`apps/api/src/llm/providers.ts`) อ้างอิงข้อมูล ต.ค. 2026 — ควรตรวจกับเอกสาร provider และ override ด้วย `*_MODEL`
 - OpenAI ใช้ Chat Completions (ยังไม่ใช้ Responses API); xAI ใช้ endpoint แบบ OpenAI-compatible
 - quota รายวันนับตามวัน UTC; ไม่มีการนับ token/ค่าใช้จ่ายจริง

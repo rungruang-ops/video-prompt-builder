@@ -54,31 +54,31 @@
   <section class="center" id="center"></section>
   <aside class="out" id="out">
     <div class="card">
-      <h3>🎯 โมเดลเป้าหมาย <span class="sp"></span><span style="font-size:11px;color:var(--tx3)">เปลี่ยนรูปแบบ prompt อัตโนมัติ</span></h3>
+      <h3>🎯 โมเดลเป้าหมาย <span class="sp"></span><span class="hnote">เปลี่ยนรูปแบบ prompt อัตโนมัติ</span></h3>
       <div class="models" id="models"></div>
       <div class="mnote" id="mnote"></div>
     </div>
     <div class="card">
       <div class="scorewrap">
         <div class="ring" id="ring"><b id="scoreNum">0<small>/100</small></b></div>
-        <div style="flex:1;min-width:0">
+        <div class="grow">
           <div class="slabel" id="scoreLabel">ความครบถ้วนของ Prompt</div>
           <div class="missing" id="missing"></div>
         </div>
       </div>
     </div>
-    <div class="card" id="cfCard"><h3>🚦 ตรวจความขัดแย้ง <span class="sp"></span><span id="cfCount" style="font-size:11px"></span></h3><div id="conflicts"></div></div>
+    <div class="card" id="cfCard"><h3>🚦 ตรวจความขัดแย้ง <span class="sp"></span><span id="cfCount" class="hcount"></span></h3><div id="conflicts"></div></div>
     <div class="card">
       <h3>📝 Prompt (English) <span class="sp"></span>
         <span class="tabs" id="outTabs"><button data-t="prompt" class="on">Prompt</button><button data-t="json">JSON Spec</button></span>
         <button class="btn sm pri" id="copyPrompt">📋 Copy</button></h3>
       <div id="enhBanner"></div>
       <pre class="prompt" id="prompt"></pre>
-      <div class="meta"><span id="charCount">0 ตัวอักษร</span><div class="bar"><i id="charBar" style="width:0"></i></div></div>
+      <div class="meta"><span id="charCount">0 ตัวอักษร</span><div class="bar"><i id="charBar"></i></div></div>
       <div class="legend" id="legend"></div>
     </div>
     <div class="card" id="negCard">
-      <h3>🚫 Negative prompt <span class="sp"></span><span id="negMode" style="font-size:11px;color:var(--tx3)"></span><button class="btn sm" id="copyNeg">📋</button></h3>
+      <h3>🚫 Negative prompt <span class="sp"></span><span id="negMode" class="hnote"></span><button class="btn sm" id="copyNeg">📋</button></h3>
       <pre class="prompt neg" id="neg"></pre>
     </div>
     <div class="card">
@@ -93,7 +93,7 @@
       <button class="btn" id="btnImport">⬆️ Import JSON</button>
       <button class="btn" id="btnCopyTh">🇹🇭 สรุปภาษาไทย</button>
     </div>
-    <input type="file" id="fileIn" accept="application/json" style="display:none">
+    <input type="file" id="fileIn" accept="application/json" hidden>
   </aside>
 </main>
 <div class="modal" id="modal"><div class="mbox" id="mbox"></div></div>
